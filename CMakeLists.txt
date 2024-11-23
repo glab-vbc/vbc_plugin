@@ -83,6 +83,10 @@ set_target_properties(_sqd_plugin PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIR
 
 message(STATUS "Building _sqd_plugin with sources: ${_sqd_plugin_sources}")
 
+install(TARGETS _sqd_plugin
+        LIBRARY DESTINATION ${PYTHON_SITE_INSTALL_DIR}/sqd_plugin
+        )
+
 # Install Python files
 install(FILES ${py_files}
         DESTINATION ${PYTHON_SITE_INSTALL_DIR}/sqd_plugin
