@@ -211,8 +211,6 @@ class EvaluatorSquareDensity
         }
 #endif
 
-    static const bool flag_for_RevCross = false;
-
     protected:
     Scalar rij_sq; //!< Stored rij_sq from the constructor
     Scalar rik_sq; //!< Stored rik_sq
