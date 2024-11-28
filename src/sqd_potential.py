@@ -324,5 +324,5 @@ class SquareDensity(Triplet):
     def __init__(self, nlist, default_r_cut=None):
         super().__init__(nlist, default_r_cut)
         params = TypeParameter('params', 'particle_types',
-                               TypeParameterDict(A=0.0, B=float, len_keys=2))
+                               TypeParameterDict(A=0.0, B=float, C=1.0, len_keys=2))
         self._add_typeparam(params)

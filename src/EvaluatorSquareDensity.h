@@ -9,7 +9,7 @@
 #endif
 
 #include "hoomd/HOOMDMath.h"
-
+#include <iostream>
 /*! \file EvaluatorSquareDensity.h
     \brief Defines the evaluator class for a three-body square density potential
 
@@ -37,6 +37,7 @@ class EvaluatorSquareDensity
         {
         Scalar A;
         Scalar B;
+        Scalar C;
 
 #ifdef ENABLE_HIP
         //! Set CUDA memory hints
@@ -47,12 +48,13 @@ class EvaluatorSquareDensity
 #endif
 
 #ifndef __HIPCC__
-        param_type() : A(0), B(0) { }
+        param_type() : A(0), B(0), C(0) { }
 
         param_type(pybind11::dict v)
             {
             A = v["A"].cast<Scalar>();
             B = v["B"].cast<Scalar>();
+            C = v["C"].cast<Scalar>();
             }
 
         pybind11::dict asDict()
@@ -60,6 +62,7 @@ class EvaluatorSquareDensity
             pybind11::dict v;
             v["A"] = A;
             v["B"] = B;
+            v["C"] = C;
             return v;
             }
 #endif
@@ -76,7 +79,7 @@ class EvaluatorSquareDensity
         \param _params Per type-pair parameters for this potential
     */
     DEVICE EvaluatorSquareDensity(Scalar _rij_sq, Scalar _rcutsq, const param_type& _params)
-        : rij_sq(_rij_sq), rcutsq(_rcutsq), A(_params.A), B(_params.B)
+        : rij_sq(_rij_sq), rcutsq(_rcutsq), A(_params.A), B(_params.B), C(_params.C)
         {
         }
 
@@ -163,6 +166,7 @@ class EvaluatorSquareDensity
         {
         if (rij_sq < rcutsq)
             {
+            // std::cout << rij_sq << std::endl;
             Scalar rho_i = phi;
             Scalar norm(15.0 / (2.0 * M_PI));
             Scalar rcut = fast::sqrt(rcutsq);
@@ -173,7 +177,7 @@ class EvaluatorSquareDensity
 
             // compute the ij force
             Scalar w_prime = Scalar(2.0) * norm * fac / rcut / rij;
-            force_divr = B * (rho_i - A) * w_prime;
+            force_divr = C * B * (rho_i - A) * w_prime; // added C here to test
             }
         }
 
@@ -217,6 +221,7 @@ class EvaluatorSquareDensity
     Scalar rcutsq; //!< Stored rcutsq from the constructor
     Scalar A;      //!< center of harmonic potential
     Scalar B;      //!< repulsion parameter
+    Scalar C;      //!< extra parameter
     };
 
     } // end namespace md

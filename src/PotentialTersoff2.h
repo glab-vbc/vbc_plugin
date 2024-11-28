@@ -325,7 +325,7 @@ template<class evaluator> void PotentialTersoff2<evaluator>::computeForces(uint6
 
     unsigned int ntypes = m_pdata->getNTypes();
 
-    std::cout << "before getting into the loop, fuck yeah!!" << std::endl;
+    // std::cout << "before getting into the loop, fuck yeah!!" << std::endl;
     // for each particle
     for (int i = 0; i < (int)m_pdata->getN(); i++)
         {
