@@ -46,6 +46,7 @@ from hoomd.data.typeconverter import positive_real
 from hoomd.data.typeparam import TypeParameter
 from hoomd.md import _md
 from hoomd.md.force import Force
+from hoomd.sqd_plugin import _sqd_plugin
 
 
 class Triplet(Force):
@@ -113,9 +114,9 @@ class Triplet(Force):
         self.nlist._attach(self._simulation)
         self.nlist._cpp_obj.setStorageMode(_md.NeighborList.storageMode.full)
         if isinstance(self._simulation.device, hoomd.device.CPU):
-            cls = getattr(_md, self._cpp_class_name)
+            cls = getattr(_sqd_plugin, self._cpp_class_name)
         else:
-            cls = getattr(_md, self._cpp_class_name + "GPU")
+            cls = getattr(_sqd_plugin, self._cpp_class_name + "GPU")
 
         self._cpp_obj = cls(self._simulation.state._cpp_sys_def,
                             self.nlist._cpp_obj)
@@ -232,7 +233,7 @@ class Tersoff(Triplet):
         tersoff = md.many_body.Tersoff(default_r_cut=1.3, nlist=nl)
         tersoff.params[('A', 'B')] = dict(magnitudes=(2.0, 1.0), lambda3=5.0)
     """
-    _cpp_class_name = "PotentialTersoff"
+    _cpp_class_name = "PotentialTersoff2"
 
     def __init__(self, nlist, default_r_cut=None):
         super().__init__(nlist, default_r_cut)
@@ -443,7 +444,7 @@ class SquareDensity(Triplet):
     particle dynamics" Phys. Rev. E. Stat. Nonlin. Soft Matter Phys., vol. 68,
     no. 6 Pt 2, p. 066702, 2003.
     """
-    _cpp_class_name = "PotentialSquareDensity"
+    _cpp_class_name = "PotentialSquareDensity2"
 
     def __init__(self, nlist, default_r_cut=None):
         super().__init__(nlist, default_r_cut)
