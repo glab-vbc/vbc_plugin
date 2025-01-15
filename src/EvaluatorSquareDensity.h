@@ -9,7 +9,7 @@
 #endif
 
 #include "hoomd/HOOMDMath.h"
-#include <iostream>
+// #include <iostream>
 /*! \file EvaluatorSquareDensity.h
     \brief Defines the evaluator class for a three-body square density potential
 
@@ -37,7 +37,11 @@ class EvaluatorSquareDensity
         {
         Scalar A;
         Scalar B;
-        Scalar C;
+        Scalar attr_rcut;
+        Scalar rep_rcut;
+        Scalar density_rcut;
+        Scalar ncut_ij;
+        Scalar ncut_ji;
 
 #ifdef ENABLE_HIP
         //! Set CUDA memory hints
@@ -48,13 +52,17 @@ class EvaluatorSquareDensity
 #endif
 
 #ifndef __HIPCC__
-        param_type() : A(0), B(0), C(0) { }
+        param_type() : A(0), B(0), attr_rcut(0), rep_rcut(0), density_rcut(0), ncut_ij(0), ncut_ji(0) { }
 
         param_type(pybind11::dict v)
             {
             A = v["A"].cast<Scalar>();
             B = v["B"].cast<Scalar>();
-            C = v["C"].cast<Scalar>();
+            attr_rcut = v["attr_rcut"].cast<Scalar>();
+            rep_rcut = v["rep_rcut"].cast<Scalar>();
+            density_rcut = v["density_rcut"].cast<Scalar>();
+            ncut_ij = v["ncut_ij"].cast<Scalar>();
+            ncut_ji = v["ncut_ji"].cast<Scalar>();
             }
 
         pybind11::dict asDict()
@@ -62,7 +70,11 @@ class EvaluatorSquareDensity
             pybind11::dict v;
             v["A"] = A;
             v["B"] = B;
-            v["C"] = C;
+            v["attr_rcut"] = attr_rcut;
+            v["rep_rcut"] = rep_rcut;
+            v["density_rcut"] = density_rcut;
+            v["ncut_ij"] = ncut_ij;
+            v["ncut_ji"] = ncut_ji;
             return v;
             }
 #endif
@@ -74,12 +86,22 @@ class EvaluatorSquareDensity
 #endif
 
     //! Constructs the evaluator
-    /*! \param _rij_sq Squared distance between particles i and j
+    /*! \param _rij Squared distance between particles i and j
         \param _rcutsq Squared distance at which the potential goes to zero
         \param _params Per type-pair parameters for this potential
     */
-    DEVICE EvaluatorSquareDensity(Scalar _rij_sq, Scalar _rcutsq, const param_type& _params)
-        : rij_sq(_rij_sq), rcutsq(_rcutsq), A(_params.A), B(_params.B), C(_params.C)
+    DEVICE EvaluatorSquareDensity(
+        Scalar _rij_sq, 
+        const param_type& _params
+        ): 
+        rij_sq(_rij_sq), 
+        attr_rcut(_params.attr_rcut),
+        rep_rcut(_params.rep_rcut),
+        density_rcut(_params.density_rcut),
+        ncut_ij(_params.ncut_ij),
+        ncut_ji(_params.ncut_ji),       
+        A(_params.A), 
+        B(_params.B)
         {
         }
 
@@ -92,7 +114,7 @@ class EvaluatorSquareDensity
     //! Set the square distance between particles i and k
     DEVICE void setRik(Scalar rsq)
         {
-        rik_sq = rsq;
+        rij_sq = rsq;
         }
 
     //! We have a per-particl excess free energy
@@ -130,56 +152,212 @@ class EvaluatorSquareDensity
         }
 
     //! Evaluate the repulsive and attractive terms of the force
-    DEVICE bool evalRepulsiveAndAttractive(Scalar& fR, Scalar& fA)
-        {
-        // this method does nothing except checking if we're inside the cut-off
-        return (rij_sq < rcutsq);
-        }
+    // DEVICE bool evalRepulsiveAndAttractive(Scalar& fR, Scalar& fA)
+    //     {
+    //     // this method does nothing except checking if we're inside the cut-off
+    //     return (rij_sq < rcutsq);
+    //     }
 
     //! Evaluate chi (the scalar ik contribution) for this triplet
     DEVICE void evalChi(Scalar& chi) { }
 
     //! Evaluate chi (the scalar ij contribution) for this triplet
+////////////////////////////////////////////// NEWLY ADDED FUNCTION
+    // DEVICE void evalPhi(Scalar& phi)
+    //     {
+    //     // add up density n_i
+    //     if (rij_sq < rcutsq)
+    //         {
+    //         Scalar norm(15.0 / (2.0 * M_PI));
+    //         Scalar rcut = fast::sqrt(rcutsq);
+    //         norm /= rcutsq * rcut;
+
+    //         Scalar rij = fast::sqrt(rij_sq);
+    //         Scalar fac = Scalar(1.0) - rij / rcut;
+    //         phi += fac * fac * norm;
+    //         }
+    //     }
     DEVICE void evalPhi(Scalar& phi)
         {
         // add up density n_i
-        if (rij_sq < rcutsq)
+        Scalar rij = fast::sqrt(rij_sq);
+        if (rij < attr_rcut)
             {
-            Scalar norm(15.0 / (2.0 * M_PI));
-            Scalar rcut = fast::sqrt(rcutsq);
-            norm /= rcutsq * rcut;
-
-            Scalar rij = fast::sqrt(rij_sq);
-            Scalar fac = Scalar(1.0) - rij / rcut;
-            phi += fac * fac * norm;
+            phi += Scalar(1.0);
             }
-        }
-
-    //! Evaluate the force and potential energy due to ij interactions
-    DEVICE void evalForceij(Scalar fR,
-                            Scalar fA,
-                            Scalar chi,
-                            Scalar phi,
-                            Scalar& bij,
-                            Scalar& force_divr,
-                            Scalar& potential_eng)
+        else if (rij > density_rcut)
+            {
+            phi+=Scalar(0.0);
+            }
+        else 
         {
-        if (rij_sq < rcutsq)
+            phi+=pow(Scalar(1.0)-pow((rij-attr_rcut)/(density_rcut-attr_rcut),2),2);
+        }
+        }
+
+    DEVICE void evalPhiDiv(Scalar& phi)
+        {
+        // add up density n_i
+        Scalar rij = fast::sqrt(rij_sq);
+        if (rij < attr_rcut)
             {
-            // std::cout << rij_sq << std::endl;
-            Scalar rho_i = phi;
-            Scalar norm(15.0 / (2.0 * M_PI));
-            Scalar rcut = fast::sqrt(rcutsq);
-            norm /= rcutsq * rcut;
+            phi += Scalar(0.0);
+            }
+        else if (rij > density_rcut)
+            {
+            phi+=Scalar(0.0);
+            }
+        else 
+        {
+            phi+=pow(Scalar(1.0)-pow((rij-attr_rcut)/(density_rcut-attr_rcut),2),2);
+            phi+=Scalar(2.0) * (Scalar(1.0) - pow((rij-attr_rcut)/(density_rcut-attr_rcut),2)) * (Scalar(-2.0) * (rij-attr_rcut)/pow((density_rcut-attr_rcut),2));
+        }
+        }
 
-            Scalar rij = fast::sqrt(rij_sq);
-            Scalar fac = Scalar(1.0) - rij / rcut;
+    DEVICE void evalOmega(Scalar& W, Scalar phi)
+        {
+        // add up density n_i
+        if (phi < ncut_ij)
+            {
+            W += Scalar(1.0);
+            }
+        else if (phi > (ncut_ij+Scalar(1.0)))
+            {
+            phi+=Scalar(0.0);
+            }
+        else 
+        {
+            phi+=pow(Scalar(1.0)-pow((phi-ncut_ij),2),2);
+        }
+        }
 
-            // compute the ij force
-            Scalar w_prime = Scalar(2.0) * norm * fac / rcut / rij;
-            force_divr = C * B * (rho_i - A) * w_prime; // added C here to test
+    DEVICE void evalOmegaji(Scalar& W, Scalar phi)
+        {
+        // add up density n_i
+        if (phi < ncut_ji)
+            {
+            W += Scalar(1.0);
+            }
+        else if (phi > (ncut_ji+Scalar(1.0)))
+            {
+            phi+=Scalar(0.0);
+            }
+        else 
+        {
+            phi+=pow(Scalar(1.0)-pow((phi-ncut_ji),2),2);
+        }
+        }
+
+    DEVICE void evalOmegaDiv(Scalar& W, Scalar phi)
+        {
+            if (phi < ncut_ij)
+            {
+                W += Scalar(0.0);
+            }
+            else if (phi > ncut_ij+1)
+            {
+                W += Scalar(0.0);
+            }
+            else 
+            {
+                W+= Scalar(2.0) * (Scalar(1.0) - pow((phi-ncut_ij),2)) * (Scalar(-2.0) * (phi-ncut_ij));
             }
         }
+    DEVICE void evalOmegajiDiv(Scalar& W, Scalar phi)
+        {
+            if (phi < ncut_ji)
+            {
+                W += Scalar(0.0);
+            }
+            else if (phi > ncut_ji+1)
+            {
+                W += Scalar(0.0);
+            }
+            else 
+            {
+                W+= Scalar(2.0) * (Scalar(1.0) - pow((phi-ncut_ji),2)) * (Scalar(-2.0) * (phi-ncut_ji));
+            }
+        }
+    // DEVICE void evalOmega(Scalar& W, Scalar x, Scalar x1, Scalar x2)
+    //     {
+    //         if (x < x1)
+    //         {
+    //             W += Scalar(1.0);
+    //         }
+    //         else if (x > x2)
+    //         {
+    //             W += Scalar(0.0);
+    //         }
+    //         else 
+    //         {
+    //             W+=pow(Scalar(1.0) - pow((x-x1)/(x2-x1),2),2);
+    //         }
+    //     }
+    // DEVICE void evalOmegaDiv(Scalar& W, Scalar x, Scalar x1, Scalar x2)
+    //     {
+    //         if (x < x1)
+    //         {
+    //             W += Scalar(0.0);
+    //         }
+    //         else if (x > x2)
+    //         {
+    //             W += Scalar(0.0);
+    //         }
+    //         else 
+    //         {
+    //             W+= Scalar(2.0) * (Scalar(1.0) - pow((x-x1)/(x2-x1),2)) * (Scalar(-2.0) * (x-x1)/pow((x2-x1),2));
+    //         }
+    //     }
+    DEVICE void evalAttractive(Scalar& attr_eng, Scalar& attr_eng_div) 
+    { 
+        Scalar rij = fast::sqrt(rij_sq);
+        if (rij < attr_rcut && rij > rep_rcut)
+        {
+            Scalar re = (rep_rcut + attr_rcut)/Scalar(2.0);
+            attr_eng += B * pow(Scalar(1.0)-pow((rij-re)/(attr_rcut-rep_rcut)/Scalar(2.0),2),2);
+            attr_eng_div += Scalar(2.0) * B * (Scalar(1.0)-pow((rij-re)/(attr_rcut-rep_rcut)/Scalar(2.0),2)) * (Scalar(-2.0) * (rij-re)/pow((attr_rcut-rep_rcut)/Scalar(2.0),2));
+        }
+    }
+    DEVICE void evalRepulsive(Scalar& rep_eng, Scalar& rep_eng_div) 
+    { 
+        Scalar rij = fast::sqrt(rij_sq);
+        if (rij < rep_rcut)
+        {
+            rep_eng += A * pow(Scalar(1.0)-pow(rij/rep_rcut,2),2);
+            rep_eng_div += Scalar(2.0) * A * (Scalar(1.0)-pow(rij/rep_rcut,2)) * (Scalar(-2.0) * pow(rij/rep_rcut,2));
+        }
+    }
+    
+    DEVICE void evalForceijk(
+        Scalar& force_divr, 
+        Scalar& potential_eng,
+        Scalar rij_sq_ext,
+        unsigned int idx_j, 
+        unsigned int idx_k, 
+        Scalar rep_eng,
+        Scalar rep_eng_div,
+        Scalar attr_eng,
+        Scalar attr_eng_div,
+        Scalar W1,
+        Scalar W1_div,
+        Scalar W2,
+        Scalar W2_div,
+        Scalar Wrij_div)
+    {
+        Scalar r = fast::sqrt(rij_sq_ext);
+        Scalar C1 = Scalar(1.0);
+        if (idx_j == idx_k)
+        {
+            C1 = Scalar(0.5);
+            potential_eng += C1 * (rep_eng + W1 * W2 * attr_eng);
+            force_divr += C1 * (rep_eng_div + W1 * W2 * attr_eng_div)/r; //+ attr_eng * Wrij_div * (W1 * W2_div + W2 * W1_div)) / r;
+        }
+        force_divr += Scalar(2.0) * (Wrij_div * W1_div * W2 * attr_eng) / r;
+    }
+
+
+////////////////////////////////////////////// NEWLY ADDED FUNCTION
+
 
     DEVICE void evalSelfEnergy(Scalar& energy, Scalar phi)
         {
@@ -217,11 +395,14 @@ class EvaluatorSquareDensity
 
     protected:
     Scalar rij_sq; //!< Stored rij_sq from the constructor
-    Scalar rik_sq; //!< Stored rik_sq
-    Scalar rcutsq; //!< Stored rcutsq from the constructor
-    Scalar A;      //!< center of harmonic potential
+    Scalar attr_rcut;
+    Scalar rep_rcut;
+    Scalar density_rcut;
+    Scalar ncut_ij;
+    Scalar ncut_ji;
+    Scalar A;      //!< attraction parameter
     Scalar B;      //!< repulsion parameter
-    Scalar C;      //!< extra parameter
+
     };
 
     } // end namespace md
