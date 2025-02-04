@@ -187,11 +187,11 @@ class EvaluatorSquareDensity
             }
         else if (rij > density_rcut)
             {
-            phi+=Scalar(0.0);
+            phi += Scalar(0.0);
             }
         else 
         {
-            phi+=pow(Scalar(1.0)-pow((rij-attr_rcut)/(density_rcut-attr_rcut),2),2);
+            phi += pow(Scalar(1.0)-pow((rij-attr_rcut)/(density_rcut-attr_rcut),2),2);
         }
         }
 
@@ -205,12 +205,11 @@ class EvaluatorSquareDensity
             }
         else if (rij > density_rcut)
             {
-            phi+=Scalar(0.0);
+            phi += Scalar(0.0);
             }
         else 
         {
-            phi+=pow(Scalar(1.0)-pow((rij-attr_rcut)/(density_rcut-attr_rcut),2),2);
-            phi+=Scalar(2.0) * (Scalar(1.0) - pow((rij-attr_rcut)/(density_rcut-attr_rcut),2)) * (Scalar(-2.0) * (rij-attr_rcut)/pow((density_rcut-attr_rcut),2));
+            phi+=Scalar(2.0) * (Scalar(1.0) - pow((rij-attr_rcut)/(density_rcut-attr_rcut),2)) * (Scalar(-2.0) * (rij-attr_rcut)/(pow((density_rcut-attr_rcut),2)));
         }
         }
 
@@ -223,11 +222,11 @@ class EvaluatorSquareDensity
             }
         else if (phi > (ncut_ij+Scalar(1.0)))
             {
-            phi+=Scalar(0.0);
+            W += Scalar(0.0);
             }
         else 
         {
-            phi+=pow(Scalar(1.0)-pow((phi-ncut_ij),2),2);
+            W += pow(Scalar(1.0)-pow((phi-ncut_ij),2),2);
         }
         }
 
@@ -240,11 +239,11 @@ class EvaluatorSquareDensity
             }
         else if (phi > (ncut_ji+Scalar(1.0)))
             {
-            phi+=Scalar(0.0);
+            W += Scalar(0.0);
             }
         else 
         {
-            phi+=pow(Scalar(1.0)-pow((phi-ncut_ji),2),2);
+            W += pow(Scalar(1.0)-pow((phi-ncut_ji),2),2);
         }
         }
 
@@ -254,13 +253,13 @@ class EvaluatorSquareDensity
             {
                 W += Scalar(0.0);
             }
-            else if (phi > ncut_ij+1)
+            else if (phi > ncut_ij+Scalar(1.0))
             {
                 W += Scalar(0.0);
             }
             else 
             {
-                W+= Scalar(2.0) * (Scalar(1.0) - pow((phi-ncut_ij),2)) * (Scalar(-2.0) * (phi-ncut_ij));
+                W += Scalar(2.0) * (Scalar(1.0) - pow((phi-ncut_ij),2)) * (Scalar(-2.0) * (phi-ncut_ij));
             }
         }
     DEVICE void evalOmegajiDiv(Scalar& W, Scalar phi)
@@ -314,8 +313,8 @@ class EvaluatorSquareDensity
         if (rij < attr_rcut && rij > rep_rcut)
         {
             Scalar re = (rep_rcut + attr_rcut)/Scalar(2.0);
-            attr_eng += B * pow(Scalar(1.0)-pow((rij-re)/(attr_rcut-rep_rcut)/Scalar(2.0),2),2);
-            attr_eng_div += Scalar(2.0) * B * (Scalar(1.0)-pow((rij-re)/(attr_rcut-rep_rcut)/Scalar(2.0),2)) * (Scalar(-2.0) * (rij-re)/pow((attr_rcut-rep_rcut)/Scalar(2.0),2));
+            attr_eng += B * pow(Scalar(1.0)-pow((rij-re)/((attr_rcut-rep_rcut)/Scalar(2.0)),2),2);
+            attr_eng_div += Scalar(2.0) * B * (Scalar(1.0)-pow((rij-re)/((attr_rcut-rep_rcut)/Scalar(2.0)),2)) * (Scalar(-2.0) * (rij-re)/pow((attr_rcut-rep_rcut)/Scalar(2.0),2));
         }
     }
     DEVICE void evalRepulsive(Scalar& rep_eng, Scalar& rep_eng_div) 
@@ -324,14 +323,13 @@ class EvaluatorSquareDensity
         if (rij < rep_rcut)
         {
             rep_eng += A * pow(Scalar(1.0)-pow(rij/rep_rcut,2),2);
-            rep_eng_div += Scalar(2.0) * A * (Scalar(1.0)-pow(rij/rep_rcut,2)) * (Scalar(-2.0) * pow(rij/rep_rcut,2));
+            rep_eng_div += Scalar(2.0) * A * (Scalar(1.0)-pow(rij/rep_rcut,2)) * (Scalar(-2.0) * rij/pow(rep_rcut,2));
         }
     }
     
     DEVICE void evalForceijk(
         Scalar& force_divr, 
         Scalar& potential_eng,
-        Scalar rij_sq_ext,
         unsigned int idx_j, 
         unsigned int idx_k, 
         Scalar rep_eng,
@@ -344,15 +342,19 @@ class EvaluatorSquareDensity
         Scalar W2_div,
         Scalar Wrij_div)
     {
-        Scalar r = fast::sqrt(rij_sq_ext);
-        Scalar C1 = Scalar(1.0);
+        
+        
         if (idx_j == idx_k)
         {
-            C1 = Scalar(0.5);
-            potential_eng += C1 * (rep_eng + W1 * W2 * attr_eng);
-            force_divr += C1 * (rep_eng_div + W1 * W2 * attr_eng_div)/r; //+ attr_eng * Wrij_div * (W1 * W2_div + W2 * W1_div)) / r;
+
+            potential_eng += Scalar(0.5) * (rep_eng + W1 * W2 * attr_eng);
+            force_divr += Scalar(0.5) * (rep_eng_div + W1 * W2 * attr_eng_div); //+ attr_eng * Wrij_div * (W1 * W2_div + W2 * W1_div)) / r;
         }
-        force_divr += Scalar(2.0) * (Wrij_div * W1_div * W2 * attr_eng) / r;
+        force_divr += (Wrij_div * W1_div * W2 * attr_eng); /////// 0.5 ?
+        
+        ///std::cout << idx_j << " " << idx_k << " " << force_divr << " " << potential_eng << " " << std::endl;
+        ///std::cout << W1 << " " << W2 << " " << W1_div << " " << Wrij_div << " " << std::endl;
+        ///std::cout << rep_eng << " " << attr_eng << " " << rep_eng_div << " " << attr_eng_div << " " << std::endl;
     }
 
 

@@ -404,8 +404,47 @@ template<class evaluator> void PotentialTersoff2<evaluator>::computeForces(uint6
     
     // 2nd loop for each particle
     // NOTE: here also we need to calculate the phi again but using the phi of both i and j
+    //
+    /*
+    for (int i = 0; i < (int)m_pdata->getN(); i++){
+        std::cout << i << " ";
+        for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
+            {
+            std::cout << "Density" << m_phi_ab_arr[i][typ_b] << " ";
+            
+            }
+        const size_t head_i = h_head_list.data[i];
+        std::cout << "Nbrs" << std::endl;
+        const unsigned int size = (unsigned int)h_n_neigh.data[i];
+        for (unsigned int j = 0; j < size; j++)
+                {
+                // access the index of neighbor j (MEM TRANSFER: 1 scalar)
+                unsigned int jj = h_nlist.data[head_i + j];
+                Scalar3 posi = make_scalar3(h_pos.data[i].x, h_pos.data[i].y, h_pos.data[i].z);
+                unsigned int typei = __scalar_as_int(h_pos.data[i].w);
+                Scalar3 posj = make_scalar3(h_pos.data[jj].x, h_pos.data[jj].y, h_pos.data[jj].z);
+                unsigned int typej = __scalar_as_int(h_pos.data[jj].w);
+      
+                // calculate dr_ij (MEM TRANSFER: 3 scalars / FLOPS: 3)
+                Scalar3 dxij = posi - posj;
+
+                // apply periodic boundary conditions
+                dxij = box.minImage(dxij);
+
+                // compute rij_sq (FLOPS: 5)
+                Scalar rij_sq = dot(dxij, dxij);
+                Scalar rij_abs = fast::sqrt(rij_sq);
+                std::cout << jj << " - " << rij_abs << " "; 
+            
+        }
+            
+        std::cout << std::endl;
+    }
+    */
+    
     for (int i = 0; i < (int)m_pdata->getN(); i++)
         {
+        ///std::cout << i <<std::endl;
         Scalar3 posi = make_scalar3(h_pos.data[i].x, h_pos.data[i].y, h_pos.data[i].z);
         unsigned int typei = __scalar_as_int(h_pos.data[i].w);
         const size_t head_i = h_head_list.data[i];
@@ -421,7 +460,7 @@ template<class evaluator> void PotentialTersoff2<evaluator>::computeForces(uint6
             // access the index of neighbor j (MEM TRANSFER: 1 scalar)
             unsigned int jj = h_nlist.data[head_i + j];
             assert(jj < m_pdata->getN() + m_pdata->getNGhosts());
-
+            
             // access the position and type of particle j
             Scalar3 posj = make_scalar3(h_pos.data[jj].x, h_pos.data[jj].y, h_pos.data[jj].z);
             unsigned int typej = __scalar_as_int(h_pos.data[jj].w);
@@ -439,7 +478,7 @@ template<class evaluator> void PotentialTersoff2<evaluator>::computeForces(uint6
 
             // compute rij_sq (FLOPS: 5)
             Scalar rij_sq = dot(dxij, dxij);
-
+            Scalar rij_abs = fast::sqrt(rij_sq);
             // get parameters for this type pair
             unsigned int typpair_idx = m_typpair_idx(typei, typej);
             const param_type& param = h_params.data[typpair_idx];
@@ -450,9 +489,10 @@ template<class evaluator> void PotentialTersoff2<evaluator>::computeForces(uint6
 
             for (unsigned int k = 0; k < size; k++)
                 {
+                
                 unsigned int kk = h_nlist.data[head_i + k];
                 assert(kk < m_pdata->getN() + m_pdata->getNGhosts());
-
+                                
                 // access the position and type of particle k
                 Scalar3 posk = make_scalar3(h_pos.data[kk].x, h_pos.data[kk].y, h_pos.data[kk].z);
                 unsigned int typek = __scalar_as_int(h_pos.data[kk].w);
@@ -490,14 +530,17 @@ template<class evaluator> void PotentialTersoff2<evaluator>::computeForces(uint6
                     Scalar W2_div = Scalar(0.0);
                     evalik.evalOmega(W1, m_phi_ab_arr[i][typek]);
                     evalik.evalOmegaDiv(W1_div, m_phi_ab_arr[i][typek]);
-                    evalik.evalOmegaji(W2, m_phi_ab_arr[k][typei]);
-                    evalik.evalOmegajiDiv(W2_div, m_phi_ab_arr[k][typei]);
+                    evalik.evalOmegaji(W2, m_phi_ab_arr[kk][typei]);
+                    evalik.evalOmegajiDiv(W2_div, m_phi_ab_arr[kk][typei]);
 
                     Scalar Wrij_div = Scalar(0.0);
                     evalij.evalPhiDiv(Wrij_div);
                     
                     // print all the parameters of forceijk
-                    // std::cout << i << " " << j << " " << k << std::endl;
+                    
+                    // std::cout << i << " " << jj << " " << kk << std::endl;
+                    // std::cout << i << " density " << m_phi_ab_arr[i][typek] << std::endl;
+                    // std::cout << kk << " density " << m_phi_ab_arr[k][typek] << std::endl;
                     // std::cout << "force_divr: " << force_divr << std::endl;
                     // std::cout << "potential_eng: " << potential_eng << std::endl;
                     // std::cout << "rij_sq: " << rij_sq << std::endl;
@@ -513,10 +556,10 @@ template<class evaluator> void PotentialTersoff2<evaluator>::computeForces(uint6
                     // std::cout << "W2_div: " << W2_div << std::endl;
                     // std::cout << "Wrij_div: " << Wrij_div << std::endl;
                     // std::cout << std::endl;
+                    // std::cout << "New set" << i << " " << jj << " " << kk << std::endl;
 
                     evalik.evalForceijk(force_divr, 
                                         potential_eng,
-                                        rij_sq,
                                         jj,
                                         kk,
                                         rep_eng,
@@ -531,10 +574,10 @@ template<class evaluator> void PotentialTersoff2<evaluator>::computeForces(uint6
                     }
                 }
 
-                fi += Scalar(-1.0) * force_divr * dxij; // sign of force might be different TODO: check in simulation
+                fi += Scalar(-1.0) * dxij * (force_divr / rij_abs); // sign of force might be different TODO: check in simulation !!!!!!!!!!Scalar(-1.0) * 
                 pei += potential_eng;
 
-                fj += force_divr * dxij;
+                fj += dxij * (force_divr / rij_abs);
                 pej += potential_eng;
 
                 // increment the force and potential energy for particle j

@@ -4,12 +4,12 @@
 #ifndef __POTENTIAL_TERSOFF_GPU_H__
 #define __POTENTIAL_TERSOFF_GPU_H__
 
-#ifdef ENABLE_HIP
+##ifdef ENABLE_HIP
 
 #include <memory>
 
-#include "PotentialTersoff.h"
-#include "PotentialTersoffGPU.cuh"
+#include "PotentialTersoff2.h"
+#include "PotentialTersoff2GPU.cuh"
 #include "hoomd/Autotuner.h"
 
 /*! \file PotentialTersoffGPU.h
@@ -36,14 +36,14 @@ namespace md
 
     \sa export_PotentialTersoffGPU()
 */
-template<class evaluator> class PotentialTersoffGPU : public PotentialTersoff<evaluator>
+template<class evaluator> class PotentialTersoff2GPU : public PotentialTersoff2<evaluator>
     {
     public:
     //! Construct the potential
-    PotentialTersoffGPU(std::shared_ptr<SystemDefinition> sysdef,
+    PotentialTersoff2GPU(std::shared_ptr<SystemDefinition> sysdef,
                         std::shared_ptr<NeighborList> nlist);
     //! Destructor
-    virtual ~PotentialTersoffGPU();
+    virtual ~PotentialTersoff2GPU();
 
     protected:
     std::shared_ptr<Autotuner<2>> m_tuner; //!< Autotuner for block size
@@ -53,35 +53,35 @@ template<class evaluator> class PotentialTersoffGPU : public PotentialTersoff<ev
     };
 
 template<class evaluator>
-PotentialTersoffGPU<evaluator>::PotentialTersoffGPU(std::shared_ptr<SystemDefinition> sysdef,
+PotentialTersoff2GPU<evaluator>::PotentialTersoff2GPU(std::shared_ptr<SystemDefinition> sysdef,
                                                     std::shared_ptr<NeighborList> nlist)
-    : PotentialTersoff<evaluator>(sysdef, nlist)
+    : PotentialTersoff2<evaluator>(sysdef, nlist)
     {
-    this->m_exec_conf->msg->notice(5) << "Constructing PotentialTersoffGPU" << std::endl;
+    this->m_exec_conf->msg->notice(5) << "Constructing PotentialTersoff2GPU" << std::endl;
 
     // can't run on the GPU if there aren't any GPUs in the execution configuration
     if (!this->m_exec_conf->isCUDAEnabled())
         {
         this->m_exec_conf->msg->error()
-            << "***Error! Creating a PotentialTersoffGPU with no GPU in the execution configuration"
+            << "***Error! Creating a PotentialTersoff2GPU with no GPU in the execution configuration"
             << std::endl;
-        throw std::runtime_error("Error initializing PotentialTersoffGPU");
+        throw std::runtime_error("Error initializing PotentialTersoff2GPU");
         }
 
     // Initialize autotuner.
     m_tuner.reset(new Autotuner<2>({AutotunerBase::makeBlockSizeRange(this->m_exec_conf),
                                     AutotunerBase::getTppListPow2(this->m_exec_conf)},
                                    this->m_exec_conf,
-                                   "pair_tersoff"));
+                                   "pair_tersoff2"));
     this->m_autotuners.push_back(m_tuner);
     }
 
-template<class evaluator> PotentialTersoffGPU<evaluator>::~PotentialTersoffGPU()
+template<class evaluator> PotentialTersoff2GPU<evaluator>::~PotentialTersoff2GPU()
     {
-    this->m_exec_conf->msg->notice(5) << "Destroying PotentialTersoffGPU" << std::endl;
+    this->m_exec_conf->msg->notice(5) << "Destroying PotentialTersoff2GPU" << std::endl;
     }
 
-template<class evaluator> void PotentialTersoffGPU<evaluator>::computeForces(uint64_t timestep)
+template<class evaluator> void PotentialTersoff2GPU<evaluator>::computeForces(uint64_t timestep)
     {
     // start by updating the neighborlist
     this->m_nlist->compute(timestep);
@@ -91,8 +91,8 @@ template<class evaluator> void PotentialTersoffGPU<evaluator>::computeForces(uin
     if (third_law)
         {
         this->m_exec_conf->msg->error()
-            << "***Error! PotentialTersoffGPU cannot handle a half neighborlist" << std::endl;
-        throw std::runtime_error("Error computing forces in PotentialTersoffGPU");
+            << "***Error! PotentialTersoff2GPU cannot handle a half neighborlist" << std::endl;
+        throw std::runtime_error("Error computing forces in PotentialTersoff2GPU");
         }
 
     // access the neighbor list
@@ -162,11 +162,11 @@ namespace detail
 /*! \param name Name of the class in the exported python module
     \tparam T Evaluator type to export.
 */
-template<class T> void export_PotentialTersoffGPU(pybind11::module& m, const std::string& name)
+template<class T> void export_PotentialTersoff2GPU(pybind11::module& m, const std::string& name)
     {
-    pybind11::class_<PotentialTersoffGPU<T>,
-                     PotentialTersoff<T>,
-                     std::shared_ptr<PotentialTersoffGPU<T>>>(m, name.c_str())
+    pybind11::class_<PotentialTersoff2GPU<T>,
+                     PotentialTersoff2<T>,
+                     std::shared_ptr<PotentialTersoff2GPU<T>>>(m, name.c_str())
         .def(pybind11::init<std::shared_ptr<SystemDefinition>, std::shared_ptr<NeighborList>>());
     }
 
