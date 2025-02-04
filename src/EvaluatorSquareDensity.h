@@ -326,35 +326,21 @@ class EvaluatorSquareDensity
             rep_eng_div += Scalar(2.0) * A * (Scalar(1.0)-pow(rij/rep_rcut,2)) * (Scalar(-2.0) * rij/pow(rep_rcut,2));
         }
     }
-    
-    DEVICE void evalForceijk(
+
+    DEVICE void evalForceij(
         Scalar& force_divr, 
         Scalar& potential_eng,
-        unsigned int idx_j, 
-        unsigned int idx_k, 
         Scalar rep_eng,
         Scalar rep_eng_div,
         Scalar attr_eng,
         Scalar attr_eng_div,
+        Scalar s_ij,
         Scalar W1,
-        Scalar W1_div,
         Scalar W2,
-        Scalar W2_div,
         Scalar Wrij_div)
     {
-        
-        
-        if (idx_j == idx_k)
-        {
-
-            potential_eng += Scalar(0.5) * (rep_eng + W1 * W2 * attr_eng);
-            force_divr += Scalar(0.5) * (rep_eng_div + W1 * W2 * attr_eng_div); //+ attr_eng * Wrij_div * (W1 * W2_div + W2 * W1_div)) / r;
-        }
-        force_divr += (Wrij_div * W1_div * W2 * attr_eng); /////// 0.5 ?
-        
-        ///std::cout << idx_j << " " << idx_k << " " << force_divr << " " << potential_eng << " " << std::endl;
-        ///std::cout << W1 << " " << W2 << " " << W1_div << " " << Wrij_div << " " << std::endl;
-        ///std::cout << rep_eng << " " << attr_eng << " " << rep_eng_div << " " << attr_eng_div << " " << std::endl;
+        potential_eng += Scalar(0.5) * (rep_eng + W1 * W2 * attr_eng);
+        force_divr += Scalar(0.5) * (rep_eng_div + W1 * W2 * attr_eng_div) + Wrij_div * s_ij;
     }
 
 

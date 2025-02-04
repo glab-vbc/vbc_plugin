@@ -140,6 +140,8 @@ template<class evaluator> class PYBIND11_EXPORT PotentialTersoff2 : public hoomd
 ////////////////////////////////////////////// NEWLY ADDED CODE
     // std::vector<Scalar> m_phi_ab;
     std::vector<std::vector<Scalar>> m_phi_ab_arr;
+    std::vector<Scalar> m_cum_dens_ab;
+
 ////////////////////////////////////////////// NEWLY ADDED CODE
 
     //! Actually compute the forces
@@ -162,7 +164,8 @@ template<class evaluator>
 PotentialTersoff2<evaluator>::PotentialTersoff2(std::shared_ptr<SystemDefinition> sysdef,
                                               std::shared_ptr<NeighborList> nlist)
     : hoomd::ForceCompute(sysdef), m_nlist(nlist), m_typpair_idx(m_pdata->getNTypes()),
-      m_phi_ab_arr(m_pdata->getN(), std::vector<Scalar>(m_pdata->getNTypes()))
+      m_phi_ab_arr(m_pdata->getN(), std::vector<Scalar>(m_pdata->getNTypes())),
+      m_cum_dens_ab(m_pdata->getNTypes())
     {
 ////////////////////////////////////////////// NEWLY ADDED INITIALIZATION
     this->m_exec_conf->msg->notice(5) << "Constructing PotentialTersoff2" << std::endl;
@@ -455,6 +458,51 @@ template<class evaluator> void PotentialTersoff2<evaluator>::computeForces(uint6
         const unsigned int size = (unsigned int)h_n_neigh.data[i];
 ////////////////////////////////////////////// NEWLY ADDED CODE
         // loop over all of the neighbors of this particle
+
+        for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
+            {
+            m_cum_dens_ab[typ_b] = Scalar(0.0);
+            }
+
+        for (unsigned int j = 0; j < size; j++)
+            {
+            unsigned int jj = h_nlist.data[head_i + j];
+            assert(jj < m_pdata->getN() + m_pdata->getNGhosts());
+            
+            // access the position and type of particle j
+            Scalar3 posj = make_scalar3(h_pos.data[jj].x, h_pos.data[jj].y, h_pos.data[jj].z);
+            unsigned int typej = __scalar_as_int(h_pos.data[jj].w);
+            assert(typej < m_pdata->getNTypes());
+
+            // calculate dr_ij (MEM TRANSFER: 3 scalars / FLOPS: 3)
+            Scalar3 dxij = posi - posj;
+
+            // apply periodic boundary conditions
+            dxij = box.minImage(dxij);
+
+            // compute rij_sq (FLOPS: 5)
+            Scalar rij_sq = dot(dxij, dxij);
+            Scalar rij_abs = fast::sqrt(rij_sq);
+            // get parameters for this type pair
+            unsigned int typpair_idx = m_typpair_idx(typei, typej);
+            const param_type& param = h_params.data[typpair_idx];
+            Scalar rcutsq = h_rcutsq.data[typpair_idx];
+
+            evaluator evalij(rij_sq, param);
+
+            Scalar attr_eng = Scalar(0.0);
+            Scalar attr_eng_div = Scalar(0.0);
+            evalij.evalAttractive(attr_eng, attr_eng_div);
+
+            Scalar W1_div = Scalar(0.0);
+            Scalar W2 = Scalar(0.0);
+            evalij.evalOmegaDiv(W1_div, m_phi_ab_arr[i][typej]);
+            evalij.evalOmegaji(W2, m_phi_ab_arr[jj][typei]);
+
+            m_cum_dens_ab[typej] += W1_div * W2 * attr_eng;
+            }
+        
+
         for (unsigned int j = 0; j < size; j++)
             {
             // access the index of neighbor j (MEM TRANSFER: 1 scalar)
@@ -487,92 +535,120 @@ template<class evaluator> void PotentialTersoff2<evaluator>::computeForces(uint6
             Scalar force_divr = Scalar(0.0);
             Scalar potential_eng = Scalar(0.0);
 
-            for (unsigned int k = 0; k < size; k++)
-                {
+            evaluator evalij(rij_sq, param);
+            
+            Scalar rep_eng = Scalar(0.0);
+            Scalar rep_eng_div = Scalar(0.0);
+            Scalar attr_eng = Scalar(0.0);
+            Scalar attr_eng_div = Scalar(0.0);
+            evalij.evalRepulsive(rep_eng, rep_eng_div);
+            evalij.evalAttractive(attr_eng, attr_eng_div);
+
+            Scalar W1 = Scalar(0.0);
+            Scalar W2 = Scalar(0.0);
+            evalij.evalOmega(W1, m_phi_ab_arr[i][typej]);
+            evalij.evalOmegaji(W2, m_phi_ab_arr[jj][typei]);
+
+            Scalar Wrij_div = Scalar(0.0);
+            evalij.evalPhiDiv(Wrij_div);
+
+            evalij.evalForceij(force_divr, 
+                                potential_eng,
+                                rep_eng,
+                                rep_eng_div,
+                                attr_eng,
+                                attr_eng_div,
+                                m_cum_dens_ab[typej],
+                                W1,
+                                W2,
+                                Wrij_div);
+
+            // for (unsigned int k = 0; k < size; k++)
+            //     {
                 
-                unsigned int kk = h_nlist.data[head_i + k];
-                assert(kk < m_pdata->getN() + m_pdata->getNGhosts());
+            //     unsigned int kk = h_nlist.data[head_i + k];
+            //     assert(kk < m_pdata->getN() + m_pdata->getNGhosts());
                                 
-                // access the position and type of particle k
-                Scalar3 posk = make_scalar3(h_pos.data[kk].x, h_pos.data[kk].y, h_pos.data[kk].z);
-                unsigned int typek = __scalar_as_int(h_pos.data[kk].w);
-                assert(typek < m_pdata->getNTypes());
+            //     // access the position and type of particle k
+            //     Scalar3 posk = make_scalar3(h_pos.data[kk].x, h_pos.data[kk].y, h_pos.data[kk].z);
+            //     unsigned int typek = __scalar_as_int(h_pos.data[kk].w);
+            //     assert(typek < m_pdata->getNTypes());
 
-                Scalar3 dxik = posi - posk;
+            //     Scalar3 dxik = posi - posk;
 
-                // apply periodic boundary conditions
-                dxik = box.minImage(dxik);
+            //     // apply periodic boundary conditions
+            //     dxik = box.minImage(dxik);
 
-                // compute rik_sq (FLOPS: 5)
-                Scalar rik_sq = dot(dxik, dxik);
+            //     // compute rik_sq (FLOPS: 5)
+            //     Scalar rik_sq = dot(dxik, dxik);
 
-                // get parameters for this type pair
-                unsigned int typpair_idx_ik = m_typpair_idx(typei, typek);
-                const param_type& param_ik = h_params.data[typpair_idx_ik];
-                Scalar rcutsq_ik = h_rcutsq.data[typpair_idx_ik];
+            //     // get parameters for this type pair
+            //     unsigned int typpair_idx_ik = m_typpair_idx(typei, typek);
+            //     const param_type& param_ik = h_params.data[typpair_idx_ik];
+            //     Scalar rcutsq_ik = h_rcutsq.data[typpair_idx_ik];
                 
-                // evaluator eval(rij_sq, rcutsq, param);
-                evaluator evalij(rij_sq, param);
-                evaluator evalik(rik_sq, param_ik);                
+            //     // evaluator eval(rij_sq, rcutsq, param);
+            //     evaluator evalij(rij_sq, param);
+            //     evaluator evalik(rik_sq, param_ik);                
 
-                if (typej == typek)
-                    {
-                    Scalar rep_eng = Scalar(0.0);
-                    Scalar rep_eng_div = Scalar(0.0);
-                    Scalar attr_eng = Scalar(0.0);
-                    Scalar attr_eng_div = Scalar(0.0);
-                    evalik.evalRepulsive(rep_eng, rep_eng_div);
-                    evalik.evalAttractive(attr_eng, attr_eng_div);
+            //     if (typej == typek)
+            //         {
+            //         Scalar rep_eng = Scalar(0.0);
+            //         Scalar rep_eng_div = Scalar(0.0);
+            //         Scalar attr_eng = Scalar(0.0);
+            //         Scalar attr_eng_div = Scalar(0.0);
+            //         evalik.evalRepulsive(rep_eng, rep_eng_div);
+            //         evalik.evalAttractive(attr_eng, attr_eng_div);
 
-                    Scalar W1 = Scalar(0.0);
-                    Scalar W1_div = Scalar(0.0);
-                    Scalar W2 = Scalar(0.0);
-                    Scalar W2_div = Scalar(0.0);
-                    evalik.evalOmega(W1, m_phi_ab_arr[i][typek]);
-                    evalik.evalOmegaDiv(W1_div, m_phi_ab_arr[i][typek]);
-                    evalik.evalOmegaji(W2, m_phi_ab_arr[kk][typei]);
-                    evalik.evalOmegajiDiv(W2_div, m_phi_ab_arr[kk][typei]);
+            //         Scalar W1 = Scalar(0.0);
+            //         Scalar W1_div = Scalar(0.0);
+            //         Scalar W2 = Scalar(0.0);
+            //         Scalar W2_div = Scalar(0.0);
+            //         evalik.evalOmega(W1, m_phi_ab_arr[i][typek]);
+            //         evalik.evalOmegaDiv(W1_div, m_phi_ab_arr[i][typek]);
+            //         evalik.evalOmegaji(W2, m_phi_ab_arr[kk][typei]);
+            //         evalik.evalOmegajiDiv(W2_div, m_phi_ab_arr[kk][typei]);
 
-                    Scalar Wrij_div = Scalar(0.0);
-                    evalij.evalPhiDiv(Wrij_div);
+            //         Scalar Wrij_div = Scalar(0.0);
+            //         evalij.evalPhiDiv(Wrij_div);
                     
-                    // print all the parameters of forceijk
+            //         // print all the parameters of forceijk
                     
-                    // std::cout << i << " " << jj << " " << kk << std::endl;
-                    // std::cout << i << " density " << m_phi_ab_arr[i][typek] << std::endl;
-                    // std::cout << kk << " density " << m_phi_ab_arr[k][typek] << std::endl;
-                    // std::cout << "force_divr: " << force_divr << std::endl;
-                    // std::cout << "potential_eng: " << potential_eng << std::endl;
-                    // std::cout << "rij_sq: " << rij_sq << std::endl;
-                    // std::cout << "jj: " << jj << std::endl;
-                    // std::cout << "kk: " << kk << std::endl;
-                    // std::cout << "rep_eng: " << rep_eng << std::endl;
-                    // std::cout << "rep_eng_div: " << rep_eng_div << std::endl;
-                    // std::cout << "attr_eng: " << attr_eng << std::endl;
-                    // std::cout << "attr_eng_div: " << attr_eng_div << std::endl;
-                    // std::cout << "W1: " << W1 << std::endl;
-                    // std::cout << "W1_div: " << W1_div << std::endl;
-                    // std::cout << "W2: " << W2 << std::endl;
-                    // std::cout << "W2_div: " << W2_div << std::endl;
-                    // std::cout << "Wrij_div: " << Wrij_div << std::endl;
-                    // std::cout << std::endl;
-                    // std::cout << "New set" << i << " " << jj << " " << kk << std::endl;
+            //         // std::cout << i << " " << jj << " " << kk << std::endl;
+            //         // std::cout << i << " density " << m_phi_ab_arr[i][typek] << std::endl;
+            //         // std::cout << kk << " density " << m_phi_ab_arr[k][typek] << std::endl;
+            //         // std::cout << "force_divr: " << force_divr << std::endl;
+            //         // std::cout << "potential_eng: " << potential_eng << std::endl;
+            //         // std::cout << "rij_sq: " << rij_sq << std::endl;
+            //         // std::cout << "jj: " << jj << std::endl;
+            //         // std::cout << "kk: " << kk << std::endl;
+            //         // std::cout << "rep_eng: " << rep_eng << std::endl;
+            //         // std::cout << "rep_eng_div: " << rep_eng_div << std::endl;
+            //         // std::cout << "attr_eng: " << attr_eng << std::endl;
+            //         // std::cout << "attr_eng_div: " << attr_eng_div << std::endl;
+            //         // std::cout << "W1: " << W1 << std::endl;
+            //         // std::cout << "W1_div: " << W1_div << std::endl;
+            //         // std::cout << "W2: " << W2 << std::endl;
+            //         // std::cout << "W2_div: " << W2_div << std::endl;
+            //         // std::cout << "Wrij_div: " << Wrij_div << std::endl;
+            //         // std::cout << std::endl;
+            //         // std::cout << "New set" << i << " " << jj << " " << kk << std::endl;
 
-                    evalik.evalForceijk(force_divr, 
-                                        potential_eng,
-                                        jj,
-                                        kk,
-                                        rep_eng,
-                                        rep_eng_div,
-                                        attr_eng,
-                                        attr_eng_div,
-                                        W1,
-                                        W1_div,
-                                        W2,
-                                        W2_div,
-                                        Wrij_div);
-                    }
-                }
+            //         evalik.evalForceijk(force_divr, 
+            //                             potential_eng,
+            //                             jj,
+            //                             kk,
+            //                             rep_eng,
+            //                             rep_eng_div,
+            //                             attr_eng,
+            //                             attr_eng_div,
+            //                             W1,
+            //                             W1_div,
+            //                             W2,
+            //                             W2_div,
+            //                             Wrij_div);
+            //         }
+            //     }
 
                 fi += Scalar(-1.0) * dxij * (force_divr / rij_abs); // sign of force might be different TODO: check in simulation !!!!!!!!!!Scalar(-1.0) * 
                 pei += potential_eng;
