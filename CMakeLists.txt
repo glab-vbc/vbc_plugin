@@ -33,7 +33,7 @@ set(_cuda_sources "")
 # all the header files
 set(_${COMPONENT_NAME}_headers
     src/EvaluatorSquareDensity.h
-    src/PotentialTersoff2.h
+    src/PotentialValency.h
     # src/EvaluatorTersoff.h
     # src/PotentialTersoffGPU.h
     # src/export_PotentialTersoffTersoff.h

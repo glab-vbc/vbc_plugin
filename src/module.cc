@@ -1,5 +1,5 @@
 #include <pybind11/pybind11.h>
-#include "PotentialTersoff2.h"
+#include "PotentialValency.h"
 #include "EvaluatorSquareDensity.h"
 
 namespace hoomd
@@ -11,11 +11,11 @@ namespace md
 
 // void export_PotentialTersoff(pybind11::module& m)
 // {
-//     export_PotentialTersoff2<EvaluatorTersoff>(m, "PotentialTersoff2");
+//     export_PotentialValency<EvaluatorTersoff>(m, "PotentialValency");
 // }
 void export_PotentialSquareDensity(pybind11::module& m)
 {
-    export_PotentialTersoff2<EvaluatorSquareDensity>(m, "PotentialSquareDensity2");
+    export_PotentialValency<EvaluatorSquareDensity>(m, "PotentialSquareDensity2");
 }
     
 // } // end namespace detail

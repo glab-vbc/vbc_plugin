@@ -1,18 +1,18 @@
 // Copyright (c) 2009-2024 The Regents of the University of Michigan.
 // Part of HOOMD-blue, released under the BSD 3-Clause License.
 
-#ifndef __POTENTIAL_TERSOFF_GPU_H__
-#define __POTENTIAL_TERSOFF_GPU_H__
+#ifndef __POTENTIAL_VALENCY_GPU_H__
+#define __POTENTIAL_VALENCY_GPU_H__
 
 ##ifdef ENABLE_HIP
 
 #include <memory>
 
-#include "PotentialTersoff2.h"
-#include "PotentialTersoff2GPU.cuh"
+#include "PotentialValency.h"
+#include "PotentialValencyGPU.cuh"
 #include "hoomd/Autotuner.h"
 
-/*! \file PotentialTersoffGPU.h
+/*! \file PotentialValencyGPU.h
     \brief Defines the template class computing certain three-body forces on the GPU
     \note This header cannot be compiled by nvcc
 */
@@ -26,24 +26,24 @@ namespace hoomd
 namespace md
     {
 //! Template class for computing three-body potentials and forces on the GPU
-/*! Derived from PotentialTersoff, this class provides exactly the same interface for computing
-    the three-body potentials and forces.  In the same way as PotentialTersoff, this class serves
+/*! Derived from PotentialValency, this class provides exactly the same interface for computing
+    the three-body potentials and forces.  In the same way as PotentialValency, this class serves
     as a shell dealing with all the details of looping while the evaluator actually computes the
     potential and forces.
 
     \tparam evaluator Evaluator class used to evaluate V(r) and F(r)/r
-    \tparam gpu_cgpf Driver function that calls gpu_compute_tersoff_forces<evaluator>()
+    \tparam gpu_cgpf Driver function that calls gpu_compute_valency_forces<evaluator>()
 
-    \sa export_PotentialTersoffGPU()
+    \sa export_PotentialValencyGPU()
 */
-template<class evaluator> class PotentialTersoff2GPU : public PotentialTersoff2<evaluator>
+template<class evaluator> class PotentialValencyGPU : public PotentialValency<evaluator>
     {
     public:
     //! Construct the potential
-    PotentialTersoff2GPU(std::shared_ptr<SystemDefinition> sysdef,
+    PotentialValencyGPU(std::shared_ptr<SystemDefinition> sysdef,
                         std::shared_ptr<NeighborList> nlist);
     //! Destructor
-    virtual ~PotentialTersoff2GPU();
+    virtual ~PotentialValencyGPU();
 
     protected:
     std::shared_ptr<Autotuner<2>> m_tuner; //!< Autotuner for block size
@@ -53,35 +53,35 @@ template<class evaluator> class PotentialTersoff2GPU : public PotentialTersoff2<
     };
 
 template<class evaluator>
-PotentialTersoff2GPU<evaluator>::PotentialTersoff2GPU(std::shared_ptr<SystemDefinition> sysdef,
+PotentialValencyGPU<evaluator>::PotentialValencyGPU(std::shared_ptr<SystemDefinition> sysdef,
                                                     std::shared_ptr<NeighborList> nlist)
-    : PotentialTersoff2<evaluator>(sysdef, nlist)
+    : PotentialValency<evaluator>(sysdef, nlist)
     {
-    this->m_exec_conf->msg->notice(5) << "Constructing PotentialTersoff2GPU" << std::endl;
+    this->m_exec_conf->msg->notice(5) << "Constructing PotentialValencyGPU" << std::endl;
 
     // can't run on the GPU if there aren't any GPUs in the execution configuration
     if (!this->m_exec_conf->isCUDAEnabled())
         {
         this->m_exec_conf->msg->error()
-            << "***Error! Creating a PotentialTersoff2GPU with no GPU in the execution configuration"
+            << "***Error! Creating a PotentialValencyGPU with no GPU in the execution configuration"
             << std::endl;
-        throw std::runtime_error("Error initializing PotentialTersoff2GPU");
+        throw std::runtime_error("Error initializing PotentialValencyGPU");
         }
 
     // Initialize autotuner.
     m_tuner.reset(new Autotuner<2>({AutotunerBase::makeBlockSizeRange(this->m_exec_conf),
                                     AutotunerBase::getTppListPow2(this->m_exec_conf)},
                                    this->m_exec_conf,
-                                   "pair_tersoff2"));
+                                   "pair_Valency"));
     this->m_autotuners.push_back(m_tuner);
     }
 
-template<class evaluator> PotentialTersoff2GPU<evaluator>::~PotentialTersoff2GPU()
+template<class evaluator> PotentialValencyGPU<evaluator>::~PotentialValencyGPU()
     {
-    this->m_exec_conf->msg->notice(5) << "Destroying PotentialTersoff2GPU" << std::endl;
+    this->m_exec_conf->msg->notice(5) << "Destroying PotentialValencyGPU" << std::endl;
     }
 
-template<class evaluator> void PotentialTersoff2GPU<evaluator>::computeForces(uint64_t timestep)
+template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uint64_t timestep)
     {
     // start by updating the neighborlist
     this->m_nlist->compute(timestep);
@@ -91,8 +91,8 @@ template<class evaluator> void PotentialTersoff2GPU<evaluator>::computeForces(ui
     if (third_law)
         {
         this->m_exec_conf->msg->error()
-            << "***Error! PotentialTersoff2GPU cannot handle a half neighborlist" << std::endl;
-        throw std::runtime_error("Error computing forces in PotentialTersoff2GPU");
+            << "***Error! PotentialValencyGPU cannot handle a half neighborlist" << std::endl;
+        throw std::runtime_error("Error computing forces in PotentialValencyGPU");
         }
 
     // access the neighbor list
@@ -131,7 +131,7 @@ template<class evaluator> void PotentialTersoff2GPU<evaluator>::computeForces(ui
     unsigned int threads_per_particle = param[1];
 
     kernel::gpu_compute_triplet_forces<evaluator>(
-        kernel::tersoff_args_t(d_force.data,
+        kernel::valency_args_t(d_force.data,
                                this->m_pdata->getN(),
                                this->m_pdata->getNGhosts(),
                                d_virial.data,
@@ -162,11 +162,11 @@ namespace detail
 /*! \param name Name of the class in the exported python module
     \tparam T Evaluator type to export.
 */
-template<class T> void export_PotentialTersoff2GPU(pybind11::module& m, const std::string& name)
+template<class T> void export_PotentialValencyGPU(pybind11::module& m, const std::string& name)
     {
-    pybind11::class_<PotentialTersoff2GPU<T>,
-                     PotentialTersoff2<T>,
-                     std::shared_ptr<PotentialTersoff2GPU<T>>>(m, name.c_str())
+    pybind11::class_<PotentialValencyGPU<T>,
+                     PotentialValency<T>,
+                     std::shared_ptr<PotentialValencyGPU<T>>>(m, name.c_str())
         .def(pybind11::init<std::shared_ptr<SystemDefinition>, std::shared_ptr<NeighborList>>());
     }
 

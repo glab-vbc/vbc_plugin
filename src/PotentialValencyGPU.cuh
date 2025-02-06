@@ -14,12 +14,12 @@
 #endif // __HIPCC__
 #include <assert.h>
 
-/*! \file PotentialTersoffGPU.cuh
+/*! \file PotentialValencyGPU.cuh
     \brief Defines templated GPU kernel code for calculating certain three-body forces
 */
 
-#ifndef __POTENTIAL_TERSOFF_GPU_CUH__
-#define __POTENTIAL_TERSOFF_GPU_CUH__
+#ifndef __POTENTIAL_VALENCY_GPU_CUH__
+#define __POTENTIAL_VALENCY_GPU_CUH__
 
 namespace hoomd
     {
@@ -30,16 +30,16 @@ namespace kernel
 //! Maximum number of threads (width of a warp)
 // currently this is hardcoded, we should set it to the max of platforms
 #if defined(__HIP_PLATFORM_NVCC__)
-const int gpu_tersoff_max_tpp = 32;
+const int gpu_valency_max_tpp = 32;
 #elif defined(__HIP_PLATFORM_HCC__)
-const int gpu_tersoff_max_tpp = 64;
+const int gpu_valency_max_tpp = 64;
 #endif
 
 //! Wraps arguments to gpu_cgpf
-struct tersoff_args_t
+struct valency_args_t
     {
-    //! Construct a tersoff_args_t
-    tersoff_args_t(Scalar4* _d_force,
+    //! Construct a valency_args_t
+    valency_args_t(Scalar4* _d_force,
                    const unsigned int _N,
                    const unsigned int _Nghosts,
                    Scalar* _d_virial,
@@ -138,7 +138,7 @@ inline __device__ float myAtomicAdd(float* address, float val)
     }
 #endif
 
-//! Kernel for calculating the Tersoff forces
+//! Kernel for calculating the Valency forces
 /*! This kernel is called to calculate the forces on all N particles. Actual evaluation of the
    potentials and forces for each pair is handled via the template class \a evaluator.
 
@@ -234,8 +234,8 @@ __global__ void gpu_compute_triplet_forces_kernel(Scalar4* d_force,
     Scalar viriali_yz(0.0);
     Scalar viriali_zz(0.0);
 
-    // check if this is the Tersoff/SquareDensity potential or the RevCross
-    // this is the Tersoff potential
+    // check if this is the Valency/SquareDensity potential or the RevCross
+    // this is the Valency potential
     // loop over neighbors to calculate per-particle energy
     if (evaluator::hasPerParticleEnergy())
         {
@@ -652,7 +652,7 @@ __global__ void gpu_compute_triplet_forces_kernel(Scalar4* d_force,
 
 template<typename T>
 void get_max_block_size(T func,
-                        const tersoff_args_t& pair_args,
+                        const valency_args_t& pair_args,
                         unsigned int& max_block_size,
                         unsigned int& kernel_shared_bytes)
     {
@@ -665,7 +665,7 @@ void get_max_block_size(T func,
     kernel_shared_bytes = (unsigned int)(attr.sharedSizeBytes);
     }
 
-//! Tersoff compute kernel launcher
+//! Valency compute kernel launcher
 /*!
  * \tparam evaluator Evaluator class
  * \tparam use_gmem_nlist When non-zero, the neighbor list is read out of global memory. When zero,
@@ -676,14 +676,14 @@ void get_max_block_size(T func,
  * Partial function template specialization is not allowed in C++, so instead we have to wrap this
  * with a struct that we are allowed to partially specialize.
  */
-template<class evaluator, unsigned int compute_virial, int tpp> struct TersoffComputeKernel
+template<class evaluator, unsigned int compute_virial, int tpp> struct ValencyComputeKernel
     {
-    //! Launcher for the tersoff triplet kernel
+    //! Launcher for the valency triplet kernel
     /*!
      * \param pair_args Other arguments to pass onto the kernel
      * \param d_params Parameters for the potential, stored per type pair
      */
-    static void launch(const tersoff_args_t& pair_args,
+    static void launch(const valency_args_t& pair_args,
                        const typename evaluator::param_type* d_params)
         {
         if (tpp == pair_args.tpp)
@@ -745,16 +745,16 @@ template<class evaluator, unsigned int compute_virial, int tpp> struct TersoffCo
             }
         else
             {
-            TersoffComputeKernel<evaluator, compute_virial, tpp / 2>::launch(pair_args, d_params);
+            ValencyComputeKernel<evaluator, compute_virial, tpp / 2>::launch(pair_args, d_params);
             }
         }
     };
 
 //! Template specialization to do nothing for the tpp = 0 case
 template<class evaluator, unsigned int compute_virial>
-struct TersoffComputeKernel<evaluator, compute_virial, 0>
+struct ValencyComputeKernel<evaluator, compute_virial, 0>
     {
-    static void launch(const tersoff_args_t& pair_args,
+    static void launch(const valency_args_t& pair_args,
                        const typename evaluator::param_type* d_params)
         {
         // do nothing
@@ -769,7 +769,7 @@ struct TersoffComputeKernel<evaluator, compute_virial, 0>
 */
 template<class evaluator>
 __attribute__((visibility("default"))) hipError_t
-gpu_compute_triplet_forces(const tersoff_args_t& pair_args,
+gpu_compute_triplet_forces(const valency_args_t& pair_args,
                            const typename evaluator::param_type* d_params)
     {
     assert(d_params);
@@ -779,18 +779,18 @@ gpu_compute_triplet_forces(const tersoff_args_t& pair_args,
     // compute the new forces
     if (!pair_args.compute_virial)
         {
-        TersoffComputeKernel<evaluator, 0, gpu_tersoff_max_tpp>::launch(pair_args, d_params);
+        ValencyComputeKernel<evaluator, 0, gpu_valency_max_tpp>::launch(pair_args, d_params);
         }
     else
         {
-        TersoffComputeKernel<evaluator, 1, gpu_tersoff_max_tpp>::launch(pair_args, d_params);
+        ValencyComputeKernel<evaluator, 1, gpu_valency_max_tpp>::launch(pair_args, d_params);
         }
     return hipSuccess;
     }
 #else
 template<class evaluator>
 __attribute__((visibility("default"))) hipError_t
-gpu_compute_triplet_forces(const tersoff_args_t& pair_args,
+gpu_compute_triplet_forces(const valency_args_t& pair_args,
                            const typename evaluator::param_type* d_params);
 #endif
 
@@ -798,4 +798,4 @@ gpu_compute_triplet_forces(const tersoff_args_t& pair_args,
     } // end namespace md
     } // end namespace hoomd
 
-#endif // __POTENTIAL_TERSOFF_GPU_CUH__
+#endif // __POTENTIAL_VALENCY_GPU_CUH__

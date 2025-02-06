@@ -68,16 +68,16 @@ namespace md
 
     \sa export_PotentialTersoff()
 */
-template<class evaluator> class PYBIND11_EXPORT PotentialTersoff2 : public hoomd::ForceCompute
+template<class evaluator> class PYBIND11_EXPORT PotentialValency : public hoomd::ForceCompute
     {
     public:
     //! Param type from evaluator
     typedef typename evaluator::param_type param_type;
 
     //! Construct the potential
-    PotentialTersoff2(std::shared_ptr<SystemDefinition> sysdef, std::shared_ptr<NeighborList> nlist);
+    PotentialValency(std::shared_ptr<SystemDefinition> sysdef, std::shared_ptr<NeighborList> nlist);
     //! Destructor
-    virtual ~PotentialTersoff2();
+    virtual ~PotentialValency();
 
     //! Set the pair parameters for a single type pair
     virtual void setParams(unsigned int typ1, unsigned int typ2, const param_type& param);
@@ -155,20 +155,20 @@ template<class evaluator> class PYBIND11_EXPORT PotentialTersoff2 : public hoomd
 
 ////////////////////////////////////////////// NEWLY ADDED INITIALIZATION
 // template<class evaluator>
-// PotentialTersoff2<evaluator>::PotentialTersoff2(std::shared_ptr<SystemDefinition> sysdef,
+// PotentialValency<evaluator>::PotentialValency(std::shared_ptr<SystemDefinition> sysdef,
 //                                               std::shared_ptr<NeighborList> nlist)
 //     : hoomd::ForceCompute(sysdef), m_nlist(nlist), m_typpair_idx(m_pdata->getNTypes()),
 //       m_phi_ab(m_pdata->getNTypes())
 //     {
 template<class evaluator>
-PotentialTersoff2<evaluator>::PotentialTersoff2(std::shared_ptr<SystemDefinition> sysdef,
+PotentialValency<evaluator>::PotentialValency(std::shared_ptr<SystemDefinition> sysdef,
                                               std::shared_ptr<NeighborList> nlist)
     : hoomd::ForceCompute(sysdef), m_nlist(nlist), m_typpair_idx(m_pdata->getNTypes()),
       m_phi_ab_arr(m_pdata->getN(), std::vector<Scalar>(m_pdata->getNTypes())),
       m_cum_dens_ab(m_pdata->getNTypes())
     {
 ////////////////////////////////////////////// NEWLY ADDED INITIALIZATION
-    this->m_exec_conf->msg->notice(5) << "Constructing PotentialTersoff2" << std::endl;
+    this->m_exec_conf->msg->notice(5) << "Constructing PotentialValency" << std::endl;
 
     assert(m_pdata);
     assert(m_nlist);
@@ -183,9 +183,9 @@ PotentialTersoff2<evaluator>::PotentialTersoff2(std::shared_ptr<SystemDefinition
     nlist->addRCutMatrix(m_r_cut_nlist);
     }
 
-template<class evaluator> PotentialTersoff2<evaluator>::~PotentialTersoff2()
+template<class evaluator> PotentialValency<evaluator>::~PotentialValency()
     {
-    this->m_exec_conf->msg->notice(5) << "Destroying PotentialTersoff2" << std::endl;
+    this->m_exec_conf->msg->notice(5) << "Destroying PotentialValency" << std::endl;
     if (m_attached)
         {
         m_nlist->removeRCutMatrix(m_r_cut_nlist);
@@ -199,7 +199,7 @@ template<class evaluator> PotentialTersoff2<evaluator>::~PotentialTersoff2()
    automatically set.
 */
 template<class evaluator>
-void PotentialTersoff2<evaluator>::setParams(unsigned int typ1,
+void PotentialValency<evaluator>::setParams(unsigned int typ1,
                                             unsigned int typ2,
                                             const param_type& param)
     {
@@ -210,7 +210,7 @@ void PotentialTersoff2<evaluator>::setParams(unsigned int typ1,
     }
 // I guess here we nned to change the the typ1 and typ2 parameters to make it asymetric
 template<class evaluator>
-void PotentialTersoff2<evaluator>::setParamsPython(pybind11::tuple typ, pybind11::dict params)
+void PotentialValency<evaluator>::setParamsPython(pybind11::tuple typ, pybind11::dict params)
     {
     auto typ1 = m_pdata->getTypeByName(typ[0].cast<std::string>());
     auto typ2 = m_pdata->getTypeByName(typ[1].cast<std::string>());
@@ -220,7 +220,7 @@ void PotentialTersoff2<evaluator>::setParamsPython(pybind11::tuple typ, pybind11
     h_params.data[m_typpair_idx(typ2, typ1)] = param_type(params);
     }
 
-template<class evaluator> pybind11::dict PotentialTersoff2<evaluator>::getParams(pybind11::tuple typ)
+template<class evaluator> pybind11::dict PotentialValency<evaluator>::getParams(pybind11::tuple typ)
     {
     auto typ1 = m_pdata->getTypeByName(typ[0].cast<std::string>());
     auto typ2 = m_pdata->getTypeByName(typ[1].cast<std::string>());
@@ -236,7 +236,7 @@ template<class evaluator> pybind11::dict PotentialTersoff2<evaluator>::getParams
    automatically set.
 */
 template<class evaluator>
-void PotentialTersoff2<evaluator>::setRcut(unsigned int typ1, unsigned int typ2, Scalar rcut)
+void PotentialValency<evaluator>::setRcut(unsigned int typ1, unsigned int typ2, Scalar rcut)
     {
     validateTypes(typ1, typ2, "set r_cut");
     ArrayHandle<Scalar> h_rcutsq(m_rcutsq, access_location::host, access_mode::readwrite);
@@ -253,7 +253,7 @@ void PotentialTersoff2<evaluator>::setRcut(unsigned int typ1, unsigned int typ2,
     }
 
 template<class evaluator>
-void PotentialTersoff2<evaluator>::setRCutPython(pybind11::tuple types, Scalar r_cut)
+void PotentialValency<evaluator>::setRCutPython(pybind11::tuple types, Scalar r_cut)
     {
     auto typ1 = m_pdata->getTypeByName(types[0].cast<std::string>());
     auto typ2 = m_pdata->getTypeByName(types[1].cast<std::string>());
@@ -262,7 +262,7 @@ void PotentialTersoff2<evaluator>::setRCutPython(pybind11::tuple types, Scalar r
     }
 
 template<class evaluator>
-void PotentialTersoff2<evaluator>::validateTypes(unsigned int typ1,
+void PotentialValency<evaluator>::validateTypes(unsigned int typ1,
                                                 unsigned int typ2,
                                                 std::string action)
     {
@@ -273,11 +273,11 @@ void PotentialTersoff2<evaluator>::validateTypes(unsigned int typ1,
         this->m_exec_conf->msg->error()
             << "pair." << evaluator::getName() << ": Trying to " << action
             << " for a non existent type! " << typ1 << "," << typ2 << std::endl;
-        throw std::runtime_error("Error setting parameters in PotentialTersoff2");
+        throw std::runtime_error("Error setting parameters in PotentialValency");
         }
     }
 
-template<class evaluator> Scalar PotentialTersoff2<evaluator>::getRCut(pybind11::tuple types)
+template<class evaluator> Scalar PotentialValency<evaluator>::getRCut(pybind11::tuple types)
     {
     auto typ1 = m_pdata->getTypeByName(types[0].cast<std::string>());
     auto typ2 = m_pdata->getTypeByName(types[1].cast<std::string>());
@@ -291,7 +291,7 @@ template<class evaluator> Scalar PotentialTersoff2<evaluator>::getRCut(pybind11:
 
     \param timestep specifies the current time step of the simulation
 */
-template<class evaluator> void PotentialTersoff2<evaluator>::computeForces(uint64_t timestep)
+template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64_t timestep)
     {
     // ****** Tersoff or SquareDensity potential
     // start by updating the neighborlist
@@ -303,8 +303,8 @@ template<class evaluator> void PotentialTersoff2<evaluator>::computeForces(uint6
         {
         m_exec_conf->msg->error()
             << std::endl
-            << "PotentialTersoff2 cannot handle a half neighborlist" << std::endl;
-        throw std::runtime_error("Error computing forces in PotentialTersoff2");
+            << "PotentialValency cannot handle a half neighborlist" << std::endl;
+        throw std::runtime_error("Error computing forces in PotentialValency");
         }
 
     // access the neighbor list, particle data, and system box
@@ -679,7 +679,7 @@ template<class evaluator> void PotentialTersoff2<evaluator>::computeForces(uint6
 /*! \param timestep Current time step
  */
 template<class evaluator>
-CommFlags PotentialTersoff2<evaluator>::getRequestedCommFlags(uint64_t timestep)
+CommFlags PotentialValency<evaluator>::getRequestedCommFlags(uint64_t timestep)
     {
     CommFlags flags = CommFlags(0);
 
@@ -701,16 +701,16 @@ CommFlags PotentialTersoff2<evaluator>::getRequestedCommFlags(uint64_t timestep)
 /*! \param name Name of the class in the exported python module
     \tparam T Evaluator type to export.
 */
-template<class T> void export_PotentialTersoff2(pybind11::module& m, const std::string& name)
+template<class T> void export_PotentialValency(pybind11::module& m, const std::string& name)
     {
-    pybind11::class_<PotentialTersoff2<T>, hoomd::ForceCompute, std::shared_ptr<PotentialTersoff2<T>>>(
+    pybind11::class_<PotentialValency<T>, hoomd::ForceCompute, std::shared_ptr<PotentialValency<T>>>(
         m,
         name.c_str())
         .def(pybind11::init<std::shared_ptr<SystemDefinition>, std::shared_ptr<NeighborList>>())
-        .def("setParams", &PotentialTersoff2<T>::setParamsPython)
-        .def("getParams", &PotentialTersoff2<T>::getParams)
-        .def("setRCut", &PotentialTersoff2<T>::setRCutPython)
-        .def("getRCut", &PotentialTersoff2<T>::getRCut);
+        .def("setParams", &PotentialValency<T>::setParamsPython)
+        .def("getParams", &PotentialValency<T>::getParams)
+        .def("setRCut", &PotentialValency<T>::setRCutPython)
+        .def("getRCut", &PotentialValency<T>::getRCut);
     }
 
     // } // end namespace detail
