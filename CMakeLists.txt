@@ -22,22 +22,22 @@ set(CMAKE_INSTALL_PREFIX ${HOOMD_INSTALL_PREFIX})
 # source files for plugin, .cc
 set(_${COMPONENT_NAME}_sources 
     src/module.cc
-    # src/export_PotentialTersoff.cc
-    # src/export_PotentialTersoffTersoff.cc
-    # src/export_PotentialTersoffSquareDensity.cc
 )
 
 # source files for cuda, .cu
 set(_cuda_sources "")
 
+if (ENABLE_HIP)
+set(_cuda_sources 
+    src/PotentialValencySquareDensityGPUKernel.cu
+)
+endif (ENABLE_HIP)
+
 # all the header files
 set(_${COMPONENT_NAME}_headers
     src/EvaluatorSquareDensity.h
     src/PotentialValency.h
-    # src/EvaluatorTersoff.h
-    # src/PotentialTersoffGPU.h
-    # src/export_PotentialTersoffTersoff.h
-    # src/export_PotentialTersoffSquareDensity.h
+    src/PotentialValencyGPU.h
 )
 
 if (ENABLE_HIP)
@@ -46,32 +46,6 @@ endif (ENABLE_HIP)
 
 # python file where potentials python calling is defined
 set(py_files src/sqd_potential.py)
-
-
-## copy pasted from hoomd cmake file
-# Set triplet evaluators
-# set(_triplets Tersoff SquareDensity)
-
-# foreach(_evaluator ${_triplets})
-#     configure_file(src/export_PotentialTersoff.cc.inc
-#                    src/export_PotentialTersoff${_evaluator}.cc
-#                    @ONLY)
-#     set(_${COMPONENT_NAME}_sources ${_${COMPONENT_NAME}_sources} src/export_PotentialTersoff${_evaluator}.cc)
-
-#     if (ENABLE_HIP)
-#         configure_file(src/export_PotentialTersoffGPU.cc.inc
-#                        src/export_PotentialTersoff${_evaluator}GPU.cc
-#                        @ONLY)
-#         configure_file(src/PotentialTersoffGPUKernel.cu.inc
-#                        src/PotentialTersoff${_evaluator}GPUKernel.cu
-#                        @ONLY)
-#         set(_${COMPONENT_NAME}_sources ${_${COMPONENT_NAME}_sources} src/export_PotentialTersoff${_evaluator}GPU.cc)
-#         set(_cuda_sources ${_cuda_sources}
-#             src/PotentialTersoff${_evaluator}GPUKernel.cu
-#             )
-#         set_source_files_properties(${_cuda_sources} PROPERTIES LANGUAGE ${HOOMD_DEVICE_LANGUAGE})
-#     endif()
-# endforeach()
 
 # Add the module
 hoomd_add_module(_${COMPONENT_NAME} SHARED ${_${COMPONENT_NAME}_sources} ${_cuda_sources} ${DFFT_SOURCES} ${_${COMPONENT_NAME}_headers} NO_EXTRAS)

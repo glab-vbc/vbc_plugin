@@ -4,13 +4,14 @@
 #ifndef __POTENTIAL_VALENCY_GPU_H__
 #define __POTENTIAL_VALENCY_GPU_H__
 
-##ifdef ENABLE_HIP
+#ifdef ENABLE_HIP
 
 #include <memory>
 
 #include "PotentialValency.h"
 #include "PotentialValencyGPU.cuh"
 #include "hoomd/Autotuner.h"
+#include <iostream>
 
 /*! \file PotentialValencyGPU.h
     \brief Defines the template class computing certain three-body forces on the GPU
@@ -72,7 +73,7 @@ PotentialValencyGPU<evaluator>::PotentialValencyGPU(std::shared_ptr<SystemDefini
     m_tuner.reset(new Autotuner<2>({AutotunerBase::makeBlockSizeRange(this->m_exec_conf),
                                     AutotunerBase::getTppListPow2(this->m_exec_conf)},
                                    this->m_exec_conf,
-                                   "pair_Valency"));
+                                   "pair_valency"));
     this->m_autotuners.push_back(m_tuner);
     }
 
@@ -121,6 +122,7 @@ template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uin
 
     ArrayHandle<Scalar4> d_force(this->m_force, access_location::device, access_mode::overwrite);
     ArrayHandle<Scalar> d_virial(this->m_virial, access_location::device, access_mode::overwrite);
+    ArrayHandle<Scalar> d_phi_ab_arr(this->m_phi_ab_arr, access_location::device, access_mode::overwrite);
 
     PDataFlags flags = this->m_pdata->getFlags();
     bool compute_virial = flags[pdata_flag::pressure_tensor];
@@ -130,7 +132,7 @@ template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uin
     unsigned int block_size = param[0];
     unsigned int threads_per_particle = param[1];
 
-    kernel::gpu_compute_triplet_forces<evaluator>(
+    kernel::gpu_compute_valency_forces<evaluator>(
         kernel::valency_args_t(d_force.data,
                                this->m_pdata->getN(),
                                this->m_pdata->getNGhosts(),
@@ -138,6 +140,7 @@ template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uin
                                this->m_virial_pitch,
                                compute_virial,
                                d_pos.data,
+                               d_phi_ab_arr.data,
                                box,
                                d_n_neigh.data,
                                d_nlist.data,
@@ -149,7 +152,7 @@ template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uin
                                threads_per_particle,
                                this->m_exec_conf->dev_prop),
         d_params.data);
-
+    // std::cout << "block_size: " << block_size << ", threads_per_particle: " << threads_per_particle << std::endl;
     if (this->m_exec_conf->isCUDAErrorCheckingEnabled())
         CHECK_CUDA_ERROR();
 

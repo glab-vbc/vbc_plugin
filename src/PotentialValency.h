@@ -139,9 +139,11 @@ template<class evaluator> class PYBIND11_EXPORT PotentialValency : public hoomd:
     // scratch pad memory per type
 ////////////////////////////////////////////// NEWLY ADDED CODE
     // std::vector<Scalar> m_phi_ab;
-    std::vector<std::vector<Scalar>> m_phi_ab_arr;
+    // std::vector<std::vector<Scalar>> m_phi_ab_arr;
+    GPUArray<Scalar> m_phi_ab_arr;
+    // std::vector<Scalar> m_phi_ab_arr;
     std::vector<Scalar> m_cum_dens_ab;
-
+    // m_cum_dens_ab = std::vector<double>(m_pdata->getNTypes(), 0.0);
 ////////////////////////////////////////////// NEWLY ADDED CODE
 
     //! Actually compute the forces
@@ -164,9 +166,10 @@ template<class evaluator>
 PotentialValency<evaluator>::PotentialValency(std::shared_ptr<SystemDefinition> sysdef,
                                               std::shared_ptr<NeighborList> nlist)
     : hoomd::ForceCompute(sysdef), m_nlist(nlist), m_typpair_idx(m_pdata->getNTypes()),
-      m_phi_ab_arr(m_pdata->getN(), std::vector<Scalar>(m_pdata->getNTypes())),
+    //   m_phi_ab_arr((m_pdata->getN()+m_pdata->getNGhosts()) * m_pdata->getNTypes()),
       m_cum_dens_ab(m_pdata->getNTypes())
     {
+    //   m_phi_ab_arr(m_pdata->getN(), std::vector<Scalar>(m_pdata->getNTypes())),
 ////////////////////////////////////////////// NEWLY ADDED INITIALIZATION
     this->m_exec_conf->msg->notice(5) << "Constructing PotentialValency" << std::endl;
 
@@ -181,6 +184,10 @@ PotentialValency<evaluator>::PotentialValency(std::shared_ptr<SystemDefinition> 
     m_r_cut_nlist
         = std::make_shared<GlobalArray<Scalar>>(m_typpair_idx.getNumElements(), m_exec_conf);
     nlist->addRCutMatrix(m_r_cut_nlist);
+    
+    GPUArray<Scalar> phi_ab_arr((m_pdata->getN()+m_pdata->getNGhosts()) * m_pdata->getNTypes(), this->m_exec_conf);
+    m_phi_ab_arr.swap(phi_ab_arr);
+
     }
 
 template<class evaluator> PotentialValency<evaluator>::~PotentialValency()
@@ -325,6 +332,7 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
     // force and virial arrays
     ArrayHandle<Scalar4> h_force(m_force, access_location::host, access_mode::overwrite);
     ArrayHandle<Scalar> h_virial(m_virial, access_location::host, access_mode::overwrite);
+    ArrayHandle<Scalar> h_phi_ab_arr(m_phi_ab_arr, access_location::host, access_mode::overwrite);
 
     PDataFlags flags = this->m_pdata->getFlags();
     bool compute_virial = flags[pdata_flag::pressure_tensor];
@@ -332,10 +340,11 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
     const BoxDim box = m_pdata->getBox();
     ArrayHandle<Scalar> h_rcutsq(m_rcutsq, access_location::host, access_mode::read);
     ArrayHandle<param_type> h_params(m_params, access_location::host, access_mode::read);
-
+    
     // need to start from a zero force, energy
     memset(h_force.data, 0, sizeof(Scalar4) * (m_pdata->getN() + m_pdata->getNGhosts()));
     memset(h_virial.data, 0, sizeof(Scalar) * 6 * m_virial_pitch);
+    memset(h_phi_ab_arr.data, 0, sizeof(Scalar) * (m_pdata->getN() + m_pdata->getNGhosts()) * m_pdata->getNTypes());
 
     unsigned int ntypes = m_pdata->getNTypes();
 
@@ -353,10 +362,10 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
         assert(typei < m_pdata->getNTypes());
         
         // setting phi for each particle type to 0
-        for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
-            {
-            m_phi_ab_arr[i][typ_b] = Scalar(0.0);
-            }
+        // for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
+        //     {
+        //     h_phi_ab_arr.data[i * ntypes + typ_b] = Scalar(0.0);
+        //     }
         
         const unsigned int size = (unsigned int)h_n_neigh.data[i];
         if (evaluator::hasPerParticleEnergy())
@@ -389,7 +398,7 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
 
                 // evaluate the scalar per-neighbor contribution
                 evaluator eval(rij_sq, param);
-                eval.evalPhi(m_phi_ab_arr[i][typej]);
+                eval.evalPhi(h_phi_ab_arr.data[i * ntypes + typej]);
 
                 // std::cout << m_phi_ab_arr[i][typej] << " ";
                 }
@@ -496,8 +505,8 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
 
             Scalar W1_div = Scalar(0.0);
             Scalar W2 = Scalar(0.0);
-            evalij.evalOmegaDiv(W1_div, m_phi_ab_arr[i][typej]);
-            evalij.evalOmegaji(W2, m_phi_ab_arr[jj][typei]);
+            evalij.evalOmegaDiv(W1_div, h_phi_ab_arr.data[i * ntypes + typej]);
+            evalij.evalOmegaji(W2, h_phi_ab_arr.data[jj * ntypes + typei]);
 
             m_cum_dens_ab[typej] += W1_div * W2 * attr_eng;
             }
@@ -546,8 +555,8 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
 
             Scalar W1 = Scalar(0.0);
             Scalar W2 = Scalar(0.0);
-            evalij.evalOmega(W1, m_phi_ab_arr[i][typej]);
-            evalij.evalOmegaji(W2, m_phi_ab_arr[jj][typei]);
+            evalij.evalOmega(W1, h_phi_ab_arr.data[i * ntypes + typej]);
+            evalij.evalOmegaji(W2, h_phi_ab_arr.data[jj * ntypes + typei]);
 
             Scalar Wrij_div = Scalar(0.0);
             evalij.evalPhiDiv(Wrij_div);
@@ -695,8 +704,8 @@ CommFlags PotentialValency<evaluator>::getRequestedCommFlags(uint64_t timestep)
     }
 #endif
 
-// namespace detail
-    // {
+namespace detail
+    {
 //! Export this triplet potential to python
 /*! \param name Name of the class in the exported python module
     \tparam T Evaluator type to export.
@@ -713,7 +722,7 @@ template<class T> void export_PotentialValency(pybind11::module& m, const std::s
         .def("getRCut", &PotentialValency<T>::getRCut);
     }
 
-    // } // end namespace detail
+    } // end namespace detail
     } // end namespace md
     } // end namespace hoomd
 
