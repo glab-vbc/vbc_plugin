@@ -378,25 +378,28 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
         evalij.evalOmegaji(W2, d_phi_ab_arr[cur_j * ntypes + __scalar_as_int(postypei.w)]);
 
         s_phi_ab[threadIdx.x * ntypes + __scalar_as_int(postypej.w)] += W1_div * W2 * attr_eng;
+        //s_phi_ab[threadIdx.x + __scalar_as_int(postypej.w)] += W1_div * W2 * attr_eng;
         //__syncthreads();
         //myAtomicAdd(&s_phi_ab[threadIdx.x * ntypes + __scalar_as_int(postypej.w)], W1_div * W2 * attr_eng);
-        
-        for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
-                {
-                Scalar phi = s_phi_ab[threadIdx.x * ntypes + typ_b];
-
-                // reduce in warp
-                phi = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(phi);
-
-                // broadcast into shared mem
-                s_phi_ab[threadIdx.x * ntypes + typ_b]
-                    = hoomd::detail::WarpScan<Scalar, tpp>().Broadcast(phi, 0);
-                }
-        __syncthreads();
 
         }
     __syncthreads();
 
+    for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
+            {
+            Scalar phi = s_phi_ab[threadIdx.x * ntypes + typ_b];
+            //Scalar phi = s_phi_ab[threadIdx.x + typ_b];
+
+            // reduce in warp
+            phi = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(phi);
+
+            // broadcast into shared mem
+            //s_phi_ab[threadIdx.x + typ_b]
+            s_phi_ab[threadIdx.x * ntypes + typ_b]
+                = hoomd::detail::WarpScan<Scalar, tpp>().Broadcast(phi, 0);
+            }
+    __syncthreads();
+    
     // prefetch neighbor index
     // head_idx = d_head_list[idx];
     cur_j = 0;
@@ -539,6 +542,7 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
                                 attr_eng,
                                 attr_eng_div,
                                 s_phi_ab[threadIdx.x * ntypes + __scalar_as_int(postypej.w)],
+                                //s_phi_ab[threadIdx.x + __scalar_as_int(postypej.w)],
                                 W1,
                                 W2,
                                 Wrij_div);
