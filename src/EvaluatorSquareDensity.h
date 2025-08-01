@@ -42,6 +42,7 @@ class EvaluatorSquareDensity
         Scalar density_rcut;
         Scalar ncut_ij;
         Scalar ncut_ji;
+        Scalar use_global_dens;
 
 #ifdef ENABLE_HIP
         //! Set CUDA memory hints
@@ -52,7 +53,7 @@ class EvaluatorSquareDensity
 #endif
 
 #ifndef __HIPCC__
-        param_type() : A(0), B(0), attr_rcut(0), rep_rcut(0), density_rcut(0), ncut_ij(0), ncut_ji(0) { }
+        param_type() : A(0), B(0), attr_rcut(0), rep_rcut(0), density_rcut(0), ncut_ij(0), ncut_ji(0), use_global_dens(0) { }
 
         param_type(pybind11::dict v)
             {
@@ -63,6 +64,7 @@ class EvaluatorSquareDensity
             density_rcut = v["density_rcut"].cast<Scalar>();
             ncut_ij = v["ncut_ij"].cast<Scalar>();
             ncut_ji = v["ncut_ji"].cast<Scalar>();
+            use_global_dens = v["use_global_dens"].cast<Scalar>();
             }
 
         pybind11::dict asDict()
@@ -75,6 +77,7 @@ class EvaluatorSquareDensity
             v["density_rcut"] = density_rcut;
             v["ncut_ij"] = ncut_ij;
             v["ncut_ji"] = ncut_ji;
+            v["use_global_dens"] = use_global_dens;
             return v;
             }
 #endif
@@ -101,7 +104,8 @@ class EvaluatorSquareDensity
         ncut_ij(_params.ncut_ij),
         ncut_ji(_params.ncut_ji),       
         A(_params.A), 
-        B(_params.B)
+        B(_params.B),
+        use_global_dens(_params.use_global_dens)
         {
         }
 
@@ -213,68 +217,72 @@ class EvaluatorSquareDensity
         }
         }
 
-    DEVICE void evalOmega(Scalar& W, Scalar phi)
+    DEVICE void evalOmega(Scalar& W, Scalar phi, Scalar phi_global)
         {
         // add up density n_i
-        if (phi < ncut_ij)
+        Scalar local_phi = (use_global_dens) ? phi_global : phi;
+        if (local_phi < ncut_ij)
             {
             W += Scalar(1.0);
             }
-        else if (phi > (ncut_ij+Scalar(1.0)))
+        else if (local_phi > (ncut_ij+Scalar(1.0)))
             {
             W += Scalar(0.0);
             }
         else 
         {
-            W += pow(Scalar(1.0)-pow((phi-ncut_ij),2),2);
+            W += pow(Scalar(1.0)-pow((local_phi-ncut_ij),2),2);
         }
         }
 
-    DEVICE void evalOmegaji(Scalar& W, Scalar phi)
+    DEVICE void evalOmegaji(Scalar& W, Scalar phi, Scalar phi_global)
         {
         // add up density n_i
-        if (phi < ncut_ji)
+        Scalar local_phi = (use_global_dens) ? phi_global : phi;
+        if (local_phi < ncut_ji)
             {
             W += Scalar(1.0);
             }
-        else if (phi > (ncut_ji+Scalar(1.0)))
+        else if (local_phi > (ncut_ji+Scalar(1.0)))
             {
             W += Scalar(0.0);
             }
         else 
         {
-            W += pow(Scalar(1.0)-pow((phi-ncut_ji),2),2);
+            W += pow(Scalar(1.0)-pow((local_phi-ncut_ji),2),2);
         }
         }
 
-    DEVICE void evalOmegaDiv(Scalar& W, Scalar phi)
-        {
-            if (phi < ncut_ij)
+    DEVICE void evalOmegaDiv(Scalar& W, Scalar phi, Scalar phi_global)
+        {   
+            Scalar local_phi = (use_global_dens) ? phi_global : phi;
+            if (local_phi < ncut_ij)
             {
                 W += Scalar(0.0);
             }
-            else if (phi > ncut_ij+Scalar(1.0))
+            else if (local_phi > ncut_ij+Scalar(1.0))
             {
                 W += Scalar(0.0);
             }
             else 
             {
-                W += Scalar(2.0) * (Scalar(1.0) - pow((phi-ncut_ij),2)) * (Scalar(-2.0) * (phi-ncut_ij));
+                W += Scalar(2.0) * (Scalar(1.0) - pow((local_phi-ncut_ij),2)) * (Scalar(-2.0) * (local_phi-ncut_ij));
             }
         }
-    DEVICE void evalOmegajiDiv(Scalar& W, Scalar phi)
+    DEVICE void evalOmegajiDiv(Scalar& W, Scalar phi, Scalar phi_global)
         {
-            if (phi < ncut_ji)
+            Scalar local_phi = (use_global_dens) ? phi_global : phi;            
+            if (local_phi < ncut_ji)
             {
                 W += Scalar(0.0);
             }
-            else if (phi > ncut_ji+1)
+            else if (local_phi > ncut_ji+1)
             {
                 W += Scalar(0.0);
             }
             else 
             {
-                W+= Scalar(2.0) * (Scalar(1.0) - pow((phi-ncut_ji),2)) * (Scalar(-2.0) * (phi-ncut_ji));
+                W+= Scalar(2.0) * (Scalar(1.0) - pow((local_phi-ncut_ji),2)) * (Scalar(-2.0) * (local_phi-ncut_ji));
             }
         }
     // DEVICE void evalOmega(Scalar& W, Scalar x, Scalar x1, Scalar x2)
@@ -335,12 +343,14 @@ class EvaluatorSquareDensity
         Scalar attr_eng,
         Scalar attr_eng_div,
         Scalar s_ij,
+        Scalar s_ij_sum,
         Scalar W1,
         Scalar W2,
         Scalar Wrij_div)
     {
         potential_eng += Scalar(0.5) * (rep_eng + W1 * W2 * attr_eng);
-        force_divr += Scalar(0.5) * (rep_eng_div + W1 * W2 * attr_eng_div) + Wrij_div * s_ij;
+        Scalar local_s_ij = (use_global_dens) ? s_ij_sum : s_ij; 
+        force_divr += Scalar(0.5) * (rep_eng_div + W1 * W2 * attr_eng_div) + Wrij_div * local_s_ij;
     }
 
 
@@ -390,7 +400,7 @@ class EvaluatorSquareDensity
     Scalar ncut_ji;
     Scalar A;      //!< attraction parameter
     Scalar B;      //!< repulsion parameter
-
+    Scalar use_global_dens;
     };
 
     } // end namespace md

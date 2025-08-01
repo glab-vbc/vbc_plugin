@@ -322,6 +322,11 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
         //         }
         //     }
         }
+    Scalar phi_ab_idx_sum = 0.0;
+    for (unsigned int j = 0; j < ntypes; j++)
+        {
+        phi_ab_idx_sum += d_phi_ab_arr[idx * ntypes + j];
+        }
 
     // prefetch neighbor index
     const size_t head_idx = d_head_list[idx];
@@ -374,8 +379,8 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
         Scalar W2 = Scalar(0.0);
         // evalij.evalOmegaDiv(W1_div, d_phi_ab_arr[idx * ntypes + threadIdx.x * ntypes + __scalar_as_int(postypej.w)]);
         // evalij.evalOmegaji(W2, d_phi_ab_arr[cur_j * ntypes + threadIdx.x * ntypes + __scalar_as_int(postypei.w)]);
-        evalij.evalOmegaDiv(W1_div, d_phi_ab_arr[idx * ntypes + __scalar_as_int(postypej.w)]);
-        evalij.evalOmegaji(W2, d_phi_ab_arr[cur_j * ntypes + __scalar_as_int(postypei.w)]);
+        evalij.evalOmegaDiv(W1_div, d_phi_ab_arr[idx * ntypes + __scalar_as_int(postypej.w)], phi_ab_idx_sum);
+        evalij.evalOmegaji(W2, d_phi_ab_arr[cur_j * ntypes + __scalar_as_int(postypei.w)], phi_ab_idx_sum);
 
         s_phi_ab[threadIdx.x * ntypes + __scalar_as_int(postypej.w)] += W1_div * W2 * attr_eng;
         //s_phi_ab[threadIdx.x + __scalar_as_int(postypej.w)] += W1_div * W2 * attr_eng;
@@ -384,7 +389,7 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
 
         }
     __syncthreads();
-
+    Scalar s_phi_ab_sum = 0.0;
     for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
             {
             Scalar phi = s_phi_ab[threadIdx.x * ntypes + typ_b];
@@ -397,6 +402,7 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
             //s_phi_ab[threadIdx.x + typ_b]
             s_phi_ab[threadIdx.x * ntypes + typ_b]
                 = hoomd::detail::WarpScan<Scalar, tpp>().Broadcast(phi, 0);
+            s_phi_ab_sum += hoomd::detail::WarpScan<Scalar, tpp>().Broadcast(phi, 0);
             }
     __syncthreads();
     
@@ -529,8 +535,8 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
             Scalar W2 = Scalar(0.0);
             // evalij.evalOmega(W1, d_phi_ab_arr[idx * ntypes + threadIdx.x * ntypes + __scalar_as_int(postypej.w)]);
 //             evalij.evalOmegaji(W2, d_phi_ab_arr[cur_j * ntypes + threadIdx.x * ntypes + __scalar_as_int(postypei.w)]);
-            evalij.evalOmega(W1, d_phi_ab_arr[idx * ntypes + __scalar_as_int(postypej.w)]);
-            evalij.evalOmegaji(W2, d_phi_ab_arr[cur_j * ntypes + __scalar_as_int(postypei.w)]);
+            evalij.evalOmega(W1, d_phi_ab_arr[idx * ntypes + __scalar_as_int(postypej.w)], phi_ab_idx_sum);
+            evalij.evalOmegaji(W2, d_phi_ab_arr[cur_j * ntypes + __scalar_as_int(postypei.w)], phi_ab_idx_sum);
 
             Scalar Wrij_div = Scalar(0.0);
             evalij.evalPhiDiv(Wrij_div);
@@ -543,6 +549,7 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
                                 attr_eng_div,
                                 s_phi_ab[threadIdx.x * ntypes + __scalar_as_int(postypej.w)],
                                 //s_phi_ab[threadIdx.x + __scalar_as_int(postypej.w)],
+                                s_phi_ab_sum,
                                 W1,
                                 W2,
                                 Wrij_div);

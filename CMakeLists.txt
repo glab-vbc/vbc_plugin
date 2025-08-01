@@ -6,7 +6,7 @@ project(sqd_plugin LANGUAGES C CXX)
 set(COMPONENT_NAME sqd_plugin)
 
 # find hoomd first
-find_package(HOOMD 4.0.0 REQUIRED)
+find_package(HOOMD 5.0.0 REQUIRED)
 
 # print where you found it
 message(STATUS "Found HOOMD ${HOOMD_VERSION}: ${HOOMD_INSTALL_PREFIX}/${PYTHON_SITE_INSTALL_DIR}")

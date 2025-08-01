@@ -468,11 +468,17 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
 ////////////////////////////////////////////// NEWLY ADDED CODE
         // loop over all of the neighbors of this particle
 
+        Scalar phi_ab_i_sum = 0.0;
+        for (unsigned int j = 0; j < ntypes; j++)
+            {
+            phi_ab_i_sum += h_phi_ab_arr.data[i * ntypes + j];
+            }
+
         for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
             {
             m_cum_dens_ab[typ_b] = Scalar(0.0);
             }
-
+        Scalar m_cum_dens_ab_sum = 0.0; 
         for (unsigned int j = 0; j < size; j++)
             {
             unsigned int jj = h_nlist.data[head_i + j];
@@ -505,13 +511,14 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
 
             Scalar W1_div = Scalar(0.0);
             Scalar W2 = Scalar(0.0);
-            evalij.evalOmegaDiv(W1_div, h_phi_ab_arr.data[i * ntypes + typej]);
-            evalij.evalOmegaji(W2, h_phi_ab_arr.data[jj * ntypes + typei]);
+            evalij.evalOmegaDiv(W1_div, h_phi_ab_arr.data[i * ntypes + typej], phi_ab_i_sum);
+            evalij.evalOmegaji(W2, h_phi_ab_arr.data[jj * ntypes + typei], phi_ab_i_sum);
 
             m_cum_dens_ab[typej] += W1_div * W2 * attr_eng;
+            m_cum_dens_ab_sum += m_cum_dens_ab[typej];
             }
         
-
+    
         for (unsigned int j = 0; j < size; j++)
             {
             // access the index of neighbor j (MEM TRANSFER: 1 scalar)
@@ -555,8 +562,8 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
 
             Scalar W1 = Scalar(0.0);
             Scalar W2 = Scalar(0.0);
-            evalij.evalOmega(W1, h_phi_ab_arr.data[i * ntypes + typej]);
-            evalij.evalOmegaji(W2, h_phi_ab_arr.data[jj * ntypes + typei]);
+            evalij.evalOmega(W1, h_phi_ab_arr.data[i * ntypes + typej], phi_ab_i_sum);
+            evalij.evalOmegaji(W2, h_phi_ab_arr.data[jj * ntypes + typei], phi_ab_i_sum);
 
             Scalar Wrij_div = Scalar(0.0);
             evalij.evalPhiDiv(Wrij_div);
@@ -568,6 +575,7 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
                                 attr_eng,
                                 attr_eng_div,
                                 m_cum_dens_ab[typej],
+                                m_cum_dens_ab_sum,
                                 W1,
                                 W2,
                                 Wrij_div);
