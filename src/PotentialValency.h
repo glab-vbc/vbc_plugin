@@ -668,10 +668,10 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
             //     }
 
                 fi += Scalar(-1.0) * dxij * (force_divr / rij_abs); // sign of force might be different TODO: check in simulation !!!!!!!!!!Scalar(-1.0) * 
-                pei += potential_eng;
+                pei += Scalar(0.5) * potential_eng;
 
                 fj += dxij * (force_divr / rij_abs);
-                pej += potential_eng;
+                pej += Scalar(0.5) * potential_eng;
 
                 // increment the force and potential energy for particle j
                 unsigned int mem_idx = jj;

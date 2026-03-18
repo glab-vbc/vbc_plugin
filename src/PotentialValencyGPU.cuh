@@ -596,12 +596,12 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
             //     }
 
             // potential energy of j must be halved
-            // forcej.w += Scalar(0.5) * potential_eng;
-            forcej.w += potential_eng;
+            forcej.w += Scalar(0.5) * potential_eng;
+            // forcej.w += potential_eng;
 
             // potential energy per particle must be halved
-            // forcei.w += Scalar(0.5) * potential_eng;
-            forcei.w += potential_eng;
+            forcei.w += Scalar(0.5) * potential_eng;
+            // forcei.w += potential_eng;
 
             // write out the result for particle j
             myAtomicAdd(&d_force[cur_j].x, forcej.x);
