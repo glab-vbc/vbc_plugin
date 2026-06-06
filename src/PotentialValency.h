@@ -185,7 +185,14 @@ PotentialValency<evaluator>::PotentialValency(std::shared_ptr<SystemDefinition> 
         = std::make_shared<GPUArray<Scalar>>(m_typpair_idx.getNumElements(), m_exec_conf);
     nlist->addRCutMatrix(m_r_cut_nlist);
     
-    GPUArray<Scalar> phi_ab_arr((m_pdata->getN()+m_pdata->getNGhosts()) * m_pdata->getNTypes(), this->m_exec_conf);
+    // m_phi_ab_arr layout per particle: ntypes per-type density slots,
+    // PLUS one extra slot at column `ntypes` holding the global density
+    // (= sum over beta of phi_{i,beta}).  The global slot is populated at
+    // the end of the density-fill phase and read back by the force phase
+    // for both i and j — which is what fixes the asymmetric-ncut Newton-
+    // 3rd-law violation: evalOmegaji(W2, ..., phi_global_j) was previously
+    // passed phi_global_i.
+    GPUArray<Scalar> phi_ab_arr((m_pdata->getN()+m_pdata->getNGhosts()) * (m_pdata->getNTypes() + 1), this->m_exec_conf);
     m_phi_ab_arr.swap(phi_ab_arr);
 
     }
@@ -344,7 +351,9 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
     // need to start from a zero force, energy
     memset(h_force.data, 0, sizeof(Scalar4) * (m_pdata->getN() + m_pdata->getNGhosts()));
     memset(h_virial.data, 0, sizeof(Scalar) * 6 * m_virial_pitch);
-    memset(h_phi_ab_arr.data, 0, sizeof(Scalar) * (m_pdata->getN() + m_pdata->getNGhosts()) * m_pdata->getNTypes());
+    // +1 column for the per-particle global density (sum over types) — see
+    // the m_phi_ab_arr allocation comment in the constructor.
+    memset(h_phi_ab_arr.data, 0, sizeof(Scalar) * (m_pdata->getN() + m_pdata->getNGhosts()) * (m_pdata->getNTypes() + 1));
 
     unsigned int ntypes = m_pdata->getNTypes();
 
@@ -368,6 +377,10 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
         //     }
         
         const unsigned int size = (unsigned int)h_n_neigh.data[i];
+        // gsum: per-particle global density (sum over neighbour types).
+        // Accumulated inline as we walk neighbours, then stored in column
+        // `ntypes` so the force phase can look it up for any j directly.
+        Scalar gsum = Scalar(0.0);
         if (evaluator::hasPerParticleEnergy())
             {
             for (unsigned int j = 0; j < size; j++)
@@ -396,13 +409,18 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
                 const param_type& param = h_params.data[typpair_idx];
                 Scalar rcutsq = h_rcutsq.data[typpair_idx];
 
-                // evaluate the scalar per-neighbor contribution
+                // evaluate the per-neighbour density contribution, then add
+                // it to BOTH the per-type slot AND the running gsum so we
+                // never need a separate sum-over-types pass later.
                 evaluator eval(rij_sq, param);
-                eval.evalPhi(h_phi_ab_arr.data[i * ntypes + typej]);
-
-                // std::cout << m_phi_ab_arr[i][typej] << " ";
+                Scalar phi_contrib = Scalar(0.0);
+                eval.evalPhi(phi_contrib);
+                h_phi_ab_arr.data[i * (ntypes + 1) + typej] += phi_contrib;
+                gsum += phi_contrib;
                 }
             }
+        // store the global density in the extra column (index = ntypes)
+        h_phi_ab_arr.data[i * (ntypes + 1) + ntypes] = gsum;
         // std::cout << std::endl;
         // std::cout << i << " ";
         // for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
@@ -468,11 +486,9 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
 ////////////////////////////////////////////// NEWLY ADDED CODE
         // loop over all of the neighbors of this particle
 
-        Scalar phi_ab_i_sum = 0.0;
-        for (unsigned int j = 0; j < ntypes; j++)
-            {
-            phi_ab_i_sum += h_phi_ab_arr.data[i * ntypes + j];
-            }
+        // Global density at particle i — direct lookup from the extra
+        // column populated by the density-fill phase above (no inner sum).
+        Scalar phi_ab_i_sum = h_phi_ab_arr.data[i * (ntypes + 1) + ntypes];
 
         for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
             {
@@ -509,10 +525,16 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
             Scalar attr_eng_div = Scalar(0.0);
             evalij.evalAttractive(attr_eng, attr_eng_div);
 
+            // Omega uses i's global density; Omega_ji must use j's global
+            // density — this is the asymmetric-ncut fix (the previous code
+            // passed phi_ab_i_sum to both sides, which broke Newton's 3rd
+            // law for mixed-valency pairs where ncut_ij != ncut_ji).
+            Scalar phi_ab_j_sum = h_phi_ab_arr.data[jj * (ntypes + 1) + ntypes];
+
             Scalar W1_div = Scalar(0.0);
             Scalar W2 = Scalar(0.0);
-            evalij.evalOmegaDiv(W1_div, h_phi_ab_arr.data[i * ntypes + typej], phi_ab_i_sum);
-            evalij.evalOmegaji(W2, h_phi_ab_arr.data[jj * ntypes + typei], phi_ab_i_sum);
+            evalij.evalOmegaDiv(W1_div, h_phi_ab_arr.data[i * (ntypes + 1) + typej], phi_ab_i_sum);
+            evalij.evalOmegaji(W2, h_phi_ab_arr.data[jj * (ntypes + 1) + typei], phi_ab_j_sum);
 
             m_cum_dens_ab[typej] += W1_div * W2 * attr_eng;
             m_cum_dens_ab_sum += m_cum_dens_ab[typej];
@@ -560,10 +582,14 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
             evalij.evalRepulsive(rep_eng, rep_eng_div);
             evalij.evalAttractive(attr_eng, attr_eng_div);
 
+            // Same as the previous loop: Omega uses i's global density,
+            // Omega_ji must use j's global density (asymmetric-ncut fix).
+            Scalar phi_ab_j_sum = h_phi_ab_arr.data[jj * (ntypes + 1) + ntypes];
+
             Scalar W1 = Scalar(0.0);
             Scalar W2 = Scalar(0.0);
-            evalij.evalOmega(W1, h_phi_ab_arr.data[i * ntypes + typej], phi_ab_i_sum);
-            evalij.evalOmegaji(W2, h_phi_ab_arr.data[jj * ntypes + typei], phi_ab_i_sum);
+            evalij.evalOmega(W1, h_phi_ab_arr.data[i * (ntypes + 1) + typej], phi_ab_i_sum);
+            evalij.evalOmegaji(W2, h_phi_ab_arr.data[jj * (ntypes + 1) + typei], phi_ab_j_sum);
 
             Scalar Wrij_div = Scalar(0.0);
             evalij.evalPhiDiv(Wrij_div);
