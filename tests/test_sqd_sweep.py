@@ -36,7 +36,7 @@ OBSERVABLES (per run, saved to CSV)
   mean_neighbours_per_type     -- per (type_i, type_j) pair
 
 PASS / FAIL CRITERIA (per run)
-  0.9 * (1.5 N kT) <= KE_mean <= 1.5 * (1.5 N kT)
+  |KE_mean / (1.5 N kT) - 1| <= 0.01   (strict: conservative force => no KE bias)
   max neighbours per pair <= ncut + 2  (soft cap)
 """
 from __future__ import annotations
@@ -314,11 +314,16 @@ def main():
             print(f"  N[{a}->{b}]   max = {mx:>3d}   mean = {mn:>5.2f}   "
                   f"ncut = {ncut}")
 
-        if not (0.9 <= ratio <= 1.5):
+        # Strict equipartition: a conservative force must keep KE at 1.5 N kT.
+        # Anything beyond +/-1% is a real bias (e.g. non-conservative force from
+        # the asymmetric-cap bug), not a fluctuation.  Loose bounds previously
+        # masked a 1-5% mixed-cell bias.
+        KE_TOL = 0.01
+        if abs(ratio - 1.0) > KE_TOL:
             failures.append((name, e_att, "ke_drift", f"ratio={ratio:.3f}"))
-            print(f"  X  KE outside equipartition window")
+            print(f"  X  KE bias: |ratio-1| = {abs(ratio-1.0):.3f} > {KE_TOL}")
         else:
-            print(f"  OK KE within equipartition window")
+            print(f"  OK KE within +/-{KE_TOL:.0%} of equipartition")
 
         for (a, b), (mx, mn) in result["nbr_stats"].items():
             key = tuple(sorted((a, b)))

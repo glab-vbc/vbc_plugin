@@ -220,9 +220,24 @@ void PotentialValency<evaluator>::setParams(unsigned int typ1,
     validateTypes(typ1, typ2, "set params");
     ArrayHandle<param_type> h_params(m_params, access_location::host, access_mode::readwrite);
     h_params.data[m_typpair_idx(typ1, typ2)] = param;
-    h_params.data[m_typpair_idx(typ2, typ1)] = param;
+    // The mirror slot (typ2,typ1) describes the SAME physical pair but with the
+    // roles of the two particles reversed.  The per-direction valency caps are
+    // therefore swapped so that the home-gate member ncut_ij always equals the
+    // home particle's own cap, regardless of neighbour-list visit order.  This
+    // makes the force the exact gradient of V_hat for asymmetric ncut.
+    if (typ1 != typ2)
+        {
+        param_type param_swapped = param;
+        Scalar tmp = param_swapped.ncut_ij;
+        param_swapped.ncut_ij = param_swapped.ncut_ji;
+        param_swapped.ncut_ji = tmp;
+        h_params.data[m_typpair_idx(typ2, typ1)] = param_swapped;
+        }
+    else
+        {
+        h_params.data[m_typpair_idx(typ2, typ1)] = param;
+        }
     }
-// I guess here we nned to change the the typ1 and typ2 parameters to make it asymetric
 template<class evaluator>
 void PotentialValency<evaluator>::setParamsPython(pybind11::tuple typ, pybind11::dict params)
     {
@@ -230,8 +245,21 @@ void PotentialValency<evaluator>::setParamsPython(pybind11::tuple typ, pybind11:
     auto typ2 = m_pdata->getTypeByName(typ[1].cast<std::string>());
     validateTypes(typ1, typ2, "set params");
     ArrayHandle<param_type> h_params(m_params, access_location::host, access_mode::readwrite);
-    h_params.data[m_typpair_idx(typ1, typ2)] = param_type(params);
-    h_params.data[m_typpair_idx(typ2, typ1)] = param_type(params);
+    param_type param_in(params);
+    h_params.data[m_typpair_idx(typ1, typ2)] = param_in;
+    // Mirror slot gets the caps swapped — see setParams() above.
+    if (typ1 != typ2)
+        {
+        param_type param_swapped = param_in;
+        Scalar tmp = param_swapped.ncut_ij;
+        param_swapped.ncut_ij = param_swapped.ncut_ji;
+        param_swapped.ncut_ji = tmp;
+        h_params.data[m_typpair_idx(typ2, typ1)] = param_swapped;
+        }
+    else
+        {
+        h_params.data[m_typpair_idx(typ2, typ1)] = param_in;
+        }
     }
 
 template<class evaluator> pybind11::dict PotentialValency<evaluator>::getParams(pybind11::tuple typ)
@@ -537,7 +565,9 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
             evalij.evalOmegaji(W2, h_phi_ab_arr.data[jj * (ntypes + 1) + typei], phi_ab_j_sum);
 
             m_cum_dens_ab[typej] += W1_div * W2 * attr_eng;
-            m_cum_dens_ab_sum += m_cum_dens_ab[typej];
+            // accumulate the per-neighbour increment, NOT the running per-type
+            // bucket (the latter triangular-overcounts the global back-reaction).
+            m_cum_dens_ab_sum += W1_div * W2 * attr_eng;
             }
         
     
