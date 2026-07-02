@@ -46,7 +46,7 @@ from hoomd.data.typeconverter import positive_real
 from hoomd.data.typeparam import TypeParameter
 from hoomd.md import _md
 from hoomd.md.force import Force
-from hoomd.sqd_plugin import _sqd_plugin
+from hoomd.vbc_plugin import _vbc_plugin
 
 
 class Triplet(Force):
@@ -114,22 +114,22 @@ class Triplet(Force):
         self.nlist._attach(self._simulation)
         self.nlist._cpp_obj.setStorageMode(_md.NeighborList.storageMode.full)
         if isinstance(self._simulation.device, hoomd.device.CPU):
-            cls = getattr(_sqd_plugin, self._cpp_class_name)
+            cls = getattr(_vbc_plugin, self._cpp_class_name)
         else:
-            cls = getattr(_sqd_plugin, self._cpp_class_name + "GPU")
+            cls = getattr(_vbc_plugin, self._cpp_class_name + "GPU")
 
         self._cpp_obj = cls(self._simulation.state._cpp_sys_def,
                             self.nlist._cpp_obj)
 
 
-class SquareDensity(Triplet):
+class VBC(Triplet):
     r"""Soft force for simulating a van der Waals liquid.
 
     Args:
         nlist (hoomd.md.nlist.NeighborList): Neighbor list
         default_r_cut (float): Default cutoff radius :math:`[\mathrm{length}]`.
 
-    `SquareDensity` that the square density three-body force should on every
+    `VBC` that the vbc three-body force should on every
     particle in the simulation state.
 
     The self energy per particle takes the form:
@@ -161,7 +161,7 @@ class SquareDensity(Triplet):
 
     .. py:attribute:: params
 
-        The SquareDensity potential parameters. The dictionary has the
+        The VBC potential parameters. The dictionary has the
         following keys:
 
         * ``A`` (`float`, **required**) - :math:`A` - mean density
@@ -178,9 +178,9 @@ class SquareDensity(Triplet):
     Example::
 
         nl = nlist.Cell()
-        sqd = md.many_body.SquareDensity(nl, default_r_cut=3.0)
-        sqd.params[('A', 'B')] = dict(A=1.0, B=2.0)
-        sqd.params[('B', 'B')] = dict(A=2.0, B=2.0, default_r_on=1.0)
+        vbc = vbc_potential.VBC(nl, default_r_cut=3.0)
+        vbc.params[('A', 'B')] = dict(A=1.0, B=2.0)
+        vbc.params[('B', 'B')] = dict(A=2.0, B=2.0, default_r_on=1.0)
 
     For further details regarding this multibody potential, see
 
@@ -188,7 +188,7 @@ class SquareDensity(Triplet):
     particle dynamics" Phys. Rev. E. Stat. Nonlin. Soft Matter Phys., vol. 68,
     no. 6 Pt 2, p. 066702, 2003.
     """
-    _cpp_class_name = "PotentialSquareDensity2"
+    _cpp_class_name = "PotentialVBC2"
 
     def __init__(self, nlist, default_r_cut=None):
         super().__init__(nlist, default_r_cut)

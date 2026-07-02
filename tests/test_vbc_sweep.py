@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""test_sqd_sweep.py — regression sweep for the SQD plugin.
+"""test_vbc_sweep.py — regression sweep for the VBC plugin.
 
-Validates that the SQD plugin's force computation is energy-conserving
+Validates that the VBC plugin's force computation is energy-conserving
 (equipartition holds) for BOTH:
 
   * pure-valency systems (where ncut_ij = ncut_ji always — historically
@@ -11,7 +11,7 @@ Validates that the SQD plugin's force computation is energy-conserving
     violation in evalOmegaji).
 
 Runs 8 valency configurations x 2 energies = 16 simulations and writes
-results to test_sqd_sweep_results.csv.
+results to test_vbc_sweep_results.csv.
 
 CONFIGURATIONS (8 total)
   7 pure-valency: k in {1,2,3,4,5,6,12}, all particles type Vk
@@ -24,7 +24,7 @@ CONFIGURATIONS (8 total)
 COMMON PARAMETERS
   N = 1000 particles in a periodic 3-D box, density 0.05 -> L ~ 27.14
   no walls, no harmonic bonds (pair interactions only)
-  SQD: A = 20.0, B = -E_att, attr_rcut = 1.5, rep_rcut = 1.0,
+  VBC: A = 20.0, B = -E_att, attr_rcut = 1.5, rep_rcut = 1.0,
        density_lower_rcut = 1.5, density_upper_rcut = 2.0,
        use_global_dens = 1
   Langevin: kT = 1.0, gamma = 0.1, dt = 0.01, mass = 1
@@ -51,7 +51,7 @@ import time
 import numpy as np
 import gsd.hoomd
 import hoomd
-from hoomd.sqd_plugin import sqd_potential
+from hoomd.vbc_plugin import vbc_potential
 
 
 # ----------------------------------------------------------------------------
@@ -66,7 +66,7 @@ DT = 0.01
 N_STEPS = 100_000
 FRAME_EVERY = 1000
 
-# SQD geometry / force scale
+# VBC geometry / force scale
 A_REPULSIVE = 20.0
 R_ATT = 1.5
 R_REP = 1.0
@@ -78,7 +78,7 @@ KE_EQUIPARTITION = 1.5 * N_PARTICLES * KT   # 3/2 N kT  (mass = 1)
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sweep_out")
 os.makedirs(OUT_DIR, exist_ok=True)
-RESULTS_CSV = os.path.join(OUT_DIR, "test_sqd_sweep_results.csv")
+RESULTS_CSV = os.path.join(OUT_DIR, "test_vbc_sweep_results.csv")
 
 
 # ----------------------------------------------------------------------------
@@ -104,15 +104,15 @@ def make_init_snapshot(type_names, type_id_array, box_edge, seed=1):
     return snap
 
 
-def configure_sqd(type_names, ncut_pairs, e_att):
-    """Build an SQD potential with the per-pair ncut_ij / ncut_ji values."""
+def configure_vbc(type_names, ncut_pairs, e_att):
+    """Build an VBC potential with the per-pair ncut_ij / ncut_ji values."""
     nlist = hoomd.md.nlist.Tree(buffer=0.0, exclusions=(), default_r_cut=R_D_UPPER)
-    sqd = sqd_potential.SquareDensity(nlist, default_r_cut=R_D_UPPER)
+    vbc = vbc_potential.VBC(nlist, default_r_cut=R_D_UPPER)
     for a in type_names:
         for b in type_names:
             key = tuple(sorted((a, b)))
             ncut_ab, ncut_ba = ncut_pairs[key]
-            sqd.params[(a, b)] = dict(
+            vbc.params[(a, b)] = dict(
                 A=A_REPULSIVE,
                 B=-float(e_att),
                 attr_rcut=R_ATT,
@@ -123,7 +123,7 @@ def configure_sqd(type_names, ncut_pairs, e_att):
                 ncut_ji=float(ncut_ba),
                 use_global_dens=USE_GLOBAL_DENS,
             )
-    return sqd
+    return vbc
 
 
 def neighbour_count_stats(positions, type_ids, type_names, box_edge, r=R_ATT):
@@ -174,11 +174,11 @@ def run_one_configuration(config_name, type_names, type_id_array,
     sim = hoomd.Simulation(device=device, seed=1)
     sim.create_state_from_gsd(init_gsd)
 
-    sqd = configure_sqd(type_names, ncut_pairs, e_att)
+    vbc = configure_vbc(type_names, ncut_pairs, e_att)
     langevin = hoomd.md.methods.Langevin(filter=hoomd.filter.All(), kT=KT)
     for t in type_names:
         langevin.gamma[t] = GAMMA
-    integrator = hoomd.md.Integrator(dt=DT, methods=[langevin], forces=[sqd])
+    integrator = hoomd.md.Integrator(dt=DT, methods=[langevin], forces=[vbc])
     sim.operations.integrator = integrator
 
     logger = hoomd.logging.Logger(categories=["scalar"])

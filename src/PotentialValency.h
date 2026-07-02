@@ -134,7 +134,7 @@ template<class evaluator> class PYBIND11_EXPORT PotentialValency : public hoomd:
     bool m_attached = true;
 
     // r_cut (not squared) given to the neighborlist
-    std::shared_ptr<GPUArray<Scalar>> m_r_cut_nlist;
+    std::shared_ptr<GlobalArray<Scalar>> m_r_cut_nlist;
 
     // scratch pad memory per type
 ////////////////////////////////////////////// NEWLY ADDED CODE
@@ -182,7 +182,7 @@ PotentialValency<evaluator>::PotentialValency(std::shared_ptr<SystemDefinition> 
     m_params.swap(params);
 
     m_r_cut_nlist
-        = std::make_shared<GPUArray<Scalar>>(m_typpair_idx.getNumElements(), m_exec_conf);
+        = std::make_shared<GlobalArray<Scalar>>(m_typpair_idx.getNumElements(), m_exec_conf);
     nlist->addRCutMatrix(m_r_cut_nlist);
     
     // m_phi_ab_arr layout per particle: ntypes per-type density slots,
@@ -335,7 +335,7 @@ template<class evaluator> Scalar PotentialValency<evaluator>::getRCut(pybind11::
 */
 template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64_t timestep)
     {
-    // ****** Tersoff or SquareDensity potential
+    // ****** Tersoff or VBC potential
     // start by updating the neighborlist
     m_nlist->compute(timestep);
 

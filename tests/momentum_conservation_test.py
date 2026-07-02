@@ -2,7 +2,7 @@
 
 Newton's 3rd law  <=>  total linear momentum conserved under NVE (no thermostat).
 
-We run pure-V4 and mixed-V2/V4 systems with ONLY the SQD pair force (no bonds,
+We run pure-V4 and mixed-V2/V4 systems with ONLY the VBC pair force (no bonds,
 no walls), integrate with ConstantVolume (NVE), and track:
   - |P|   : magnitude of total linear momentum   (should stay ~const if forces
             are equal-and-opposite; grows ~linearly if there's a residual
@@ -21,11 +21,11 @@ from __future__ import annotations
 import argparse
 import numpy as np
 import hoomd
-from hoomd.sqd_plugin import sqd_potential
+from hoomd.vbc_plugin import vbc_potential
 
 
 KT = 1.0
-E_R = 20.0           # SQD repulsion amplitude A (matches chromosome E_R)
+E_R = 20.0           # VBC repulsion amplitude A (matches chromosome E_R)
 R_ATT, R_REP = 1.5, 1.0
 R_D_UPPER, R_D_LOWER = 2.0, 1.5
 N_TYPES = 4          # V1..V4 (we only populate V2, V4)
@@ -52,18 +52,18 @@ def build_state(kind, N, density, seed):
     return snap, L
 
 
-def make_sqd(nlist, e_att):
-    sqd = sqd_potential.SquareDensity(nlist, default_r_cut=R_D_UPPER)
+def make_vbc(nlist, e_att):
+    vbc = vbc_potential.VBC(nlist, default_r_cut=R_D_UPPER)
     for i in range(N_TYPES):
         for j in range(i, N_TYPES):
-            sqd.params[(TYPE_NAMES[i], TYPE_NAMES[j])] = dict(
+            vbc.params[(TYPE_NAMES[i], TYPE_NAMES[j])] = dict(
                 A=E_R, B=-float(e_att),
                 attr_rcut=R_ATT, rep_rcut=R_REP,
                 density_upper_rcut=R_D_UPPER, density_lower_rcut=R_D_LOWER,
                 ncut_ij=float(i + 1), ncut_ji=float(j + 1),
                 use_global_dens=1,
             )
-    return sqd
+    return vbc
 
 
 def run_case(device, kind, e_att, dt, N=2000, density=0.05,
@@ -74,12 +74,12 @@ def run_case(device, kind, e_att, dt, N=2000, density=0.05,
     sim.state.thermalize_particle_momenta(filter=hoomd.filter.All(), kT=KT)
 
     nlist = hoomd.md.nlist.Tree(buffer=0.0, default_r_cut=R_D_UPPER)
-    sqd = make_sqd(nlist, e_att)
+    vbc = make_vbc(nlist, e_att)
 
     # NVE: no thermostat -> momentum must be conserved iff forces are
     # equal-and-opposite.
     nve = hoomd.md.methods.ConstantVolume(filter=hoomd.filter.All())
-    sim.operations.integrator = hoomd.md.Integrator(dt=dt, methods=[nve], forces=[sqd])
+    sim.operations.integrator = hoomd.md.Integrator(dt=dt, methods=[nve], forces=[vbc])
 
     # short thermalised pre-run so PE/KE settle before we watch momentum
     sim.run(n_thermalize)
@@ -90,7 +90,7 @@ def run_case(device, kind, e_att, dt, N=2000, density=0.05,
         m = np.asarray(s.particles.mass, dtype=np.float64)
         P = (m[:, None] * v).sum(axis=0)
         ke = 0.5 * np.sum(m[:, None] * v * v)
-        pe = sqd.energy            # total potential energy
+        pe = vbc.energy            # total potential energy
         return np.linalg.norm(P), ke, (pe if pe is not None else np.nan)
 
     chunk = n_steps // n_log

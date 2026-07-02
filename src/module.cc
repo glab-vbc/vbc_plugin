@@ -1,7 +1,7 @@
 #include <pybind11/pybind11.h>
 #include "PotentialValency.h"
 #include "PotentialValencyGPU.h"
-#include "EvaluatorSquareDensity.h"
+#include "EvaluatorVBC.h"
 
 namespace hoomd
 {
@@ -14,15 +14,15 @@ namespace detail
 // {
 //     export_PotentialValency<EvaluatorTersoff>(m, "PotentialValency");
 // }
-void export_PotentialSquareDensity(pybind11::module& m)
+void export_PotentialVBC(pybind11::module& m)
 {
-    export_PotentialValency<EvaluatorSquareDensity>(m, "PotentialSquareDensity2");
+    export_PotentialValency<EvaluatorVBC>(m, "PotentialVBC2");
 }
 
 #ifdef ENABLE_HIP
-void export_PotentialSquareDensityGPU(pybind11::module& m)
+void export_PotentialVBCGPU(pybind11::module& m)
 {
-    export_PotentialValencyGPU<EvaluatorSquareDensity>(m, "PotentialSquareDensity2GPU");
+    export_PotentialValencyGPU<EvaluatorVBC>(m, "PotentialVBC2GPU");
 }
 #endif
 } // end namespace detail
@@ -31,17 +31,17 @@ void export_PotentialSquareDensityGPU(pybind11::module& m)
 
 namespace py = pybind11;
 
-PYBIND11_MODULE(_sqd_plugin, m)
+PYBIND11_MODULE(_vbc_plugin, m)
 {
-    m.doc() = "Squared density plugin for HOOMD-blue";
+    m.doc() = "VBC plugin for HOOMD-blue";
 
     // Register Tersoff potential
     // hoomd::md::export_PotentialTersoff(m);
 
-    // Register Square Density potential
-    hoomd::md::detail::export_PotentialSquareDensity(m);
+    // Register VBC potential
+    hoomd::md::detail::export_PotentialVBC(m);
 
 #ifdef ENABLE_HIP
-    hoomd::md::detail::export_PotentialSquareDensityGPU(m);
+    hoomd::md::detail::export_PotentialVBCGPU(m);
 #endif
 }

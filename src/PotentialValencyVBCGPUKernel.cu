@@ -6,9 +6,9 @@
 
 // clang-format off
 #include "PotentialValencyGPU.cuh"
-#include "EvaluatorSquareDensity.h"
+#include "EvaluatorVBC.h"
 
-#define EVALUATOR_CLASS EvaluatorSquareDensity
+#define EVALUATOR_CLASS EvaluatorVBC
 // clang-format on
 
 namespace hoomd
@@ -18,8 +18,8 @@ namespace md
 namespace kernel
     {
 template __attribute__((visibility("default"))) hipError_t
-gpu_compute_valency_forces<EvaluatorSquareDensity>(const valency_args_t& pair_args,
-                                            const typename EvaluatorSquareDensity::param_type* d_params);
+gpu_compute_valency_forces<EvaluatorVBC>(const valency_args_t& pair_args,
+                                            const typename EvaluatorVBC::param_type* d_params);
     } // end namespace kernel
     } // end namespace md
     } // end namespace hoomd

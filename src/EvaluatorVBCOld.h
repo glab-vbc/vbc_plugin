@@ -1,8 +1,8 @@
 // Copyright (c) 2009-2024 The Regents of the University of Michigan.
 // Part of HOOMD-blue, released under the BSD 3-Clause License.
 
-#ifndef __EVALUATOR_SQUARE_DENSITY__
-#define __EVALUATOR_SQUARE_DENSITY__
+#ifndef __EVALUATOR_VBC__
+#define __EVALUATOR_VBC__
 
 #ifndef __HIPCC__
 #include <string>
@@ -10,8 +10,8 @@
 
 #include "hoomd/HOOMDMath.h"
 // #include <iostream>
-/*! \file EvaluatorSquareDensity.h
-    \brief Defines the evaluator class for a three-body square density potential
+/*! \file EvaluatorVBC.h
+    \brief Defines the evaluator class for a three-body vbc potential
 
    see P. Warren, "Vapor-liquid coexistence in many-bod dissipative particle dynamics"
    Phys. Rev. E 68, p. 066702 (2003)
@@ -29,8 +29,8 @@ namespace hoomd
     {
 namespace md
     {
-//! Class for evaluating the SquareDensity three-body potential
-class EvaluatorSquareDensity
+//! Class for evaluating the VBC three-body potential
+class EvaluatorVBC
     {
     public:
     struct param_type
@@ -39,9 +39,7 @@ class EvaluatorSquareDensity
         Scalar B;
         Scalar attr_rcut;
         Scalar rep_rcut;
-        // Scalar density_upper_rcut;
-        Scalar density_upper_rcut;
-        Scalar density_lower_rcut;
+        Scalar density_rcut;
         Scalar ncut_ij;
         Scalar ncut_ji;
         Scalar use_global_dens;
@@ -55,7 +53,7 @@ class EvaluatorSquareDensity
 #endif
 
 #ifndef __HIPCC__
-        param_type() : A(0), B(0), attr_rcut(0), rep_rcut(0), density_upper_rcut(0), density_lower_rcut(0), ncut_ij(0), ncut_ji(0), use_global_dens(0) { }
+        param_type() : A(0), B(0), attr_rcut(0), rep_rcut(0), density_rcut(0), ncut_ij(0), ncut_ji(0), use_global_dens(0) { }
 
         param_type(pybind11::dict v)
             {
@@ -63,9 +61,7 @@ class EvaluatorSquareDensity
             B = v["B"].cast<Scalar>();
             attr_rcut = v["attr_rcut"].cast<Scalar>();
             rep_rcut = v["rep_rcut"].cast<Scalar>();
-            // density_upper_rcut = v["density_upper_rcut"].cast<Scalar>();
-            density_upper_rcut = v["density_upper_rcut"].cast<Scalar>();
-            density_lower_rcut = v["density_lower_rcut"].cast<Scalar>();
+            density_rcut = v["density_rcut"].cast<Scalar>();
             ncut_ij = v["ncut_ij"].cast<Scalar>();
             ncut_ji = v["ncut_ji"].cast<Scalar>();
             use_global_dens = v["use_global_dens"].cast<Scalar>();
@@ -78,9 +74,7 @@ class EvaluatorSquareDensity
             v["B"] = B;
             v["attr_rcut"] = attr_rcut;
             v["rep_rcut"] = rep_rcut;
-            // v["density_upper_rcut"] = density_upper_rcut;
-            v["density_upper_rcut"] = density_upper_rcut;
-            v["density_lower_rcut"] = density_lower_rcut;
+            v["density_rcut"] = density_rcut;
             v["ncut_ij"] = ncut_ij;
             v["ncut_ji"] = ncut_ji;
             v["use_global_dens"] = use_global_dens;
@@ -99,16 +93,14 @@ class EvaluatorSquareDensity
         \param _rcutsq Squared distance at which the potential goes to zero
         \param _params Per type-pair parameters for this potential
     */
-    DEVICE EvaluatorSquareDensity(
+    DEVICE EvaluatorVBC(
         Scalar _rij_sq, 
         const param_type& _params
         ): 
         rij_sq(_rij_sq), 
         attr_rcut(_params.attr_rcut),
         rep_rcut(_params.rep_rcut),
-        // density_rcut(_params.density_rcut),
-        density_upper_rcut(_params.density_upper_rcut),
-        density_lower_rcut(_params.density_lower_rcut),
+        density_rcut(_params.density_rcut),
         ncut_ij(_params.ncut_ij),
         ncut_ji(_params.ncut_ji),       
         A(_params.A), 
@@ -147,7 +139,7 @@ class EvaluatorSquareDensity
         return false;
         }
 
-    //! The SquareDensity potential needs the bond angle
+    //! The VBC potential needs the bond angle
     DEVICE static bool needsAngle()
         {
         return false;
@@ -193,17 +185,17 @@ class EvaluatorSquareDensity
         {
         // add up density n_i
         Scalar rij = fast::sqrt(rij_sq);
-        if (rij < density_lower_rcut)
+        if (rij < attr_rcut)
             {
             phi += Scalar(1.0);
             }
-        else if (rij > density_upper_rcut)
+        else if (rij > density_rcut)
             {
             phi += Scalar(0.0);
             }
         else 
         {
-            phi += pow(Scalar(1.0)-pow((rij-density_lower_rcut)/(density_upper_rcut-density_lower_rcut),2),2);
+            phi += pow(Scalar(1.0)-pow((rij-attr_rcut)/(density_rcut-attr_rcut),2),2);
         }
         }
 
@@ -211,17 +203,17 @@ class EvaluatorSquareDensity
         {
         // add up density n_i
         Scalar rij = fast::sqrt(rij_sq);
-        if (rij < density_lower_rcut)
+        if (rij < attr_rcut)
             {
             phi += Scalar(0.0);
             }
-        else if (rij > density_upper_rcut)
+        else if (rij > density_rcut)
             {
             phi += Scalar(0.0);
             }
         else 
         {
-            phi+=Scalar(2.0) * (Scalar(1.0) - pow((rij-density_lower_rcut)/(density_upper_rcut-density_lower_rcut),2)) * (Scalar(-2.0) * (rij-density_lower_rcut)/(pow((density_upper_rcut-density_lower_rcut),2)));
+            phi+=Scalar(2.0) * (Scalar(1.0) - pow((rij-attr_rcut)/(density_rcut-attr_rcut),2)) * (Scalar(-2.0) * (rij-attr_rcut)/(pow((density_rcut-attr_rcut),2)));
         }
         }
 
@@ -390,7 +382,7 @@ class EvaluatorSquareDensity
      */
     static std::string getName()
         {
-        return std::string("squared_density");
+        return std::string("vbc");
         }
 
     std::string getShapeSpec() const
@@ -403,8 +395,7 @@ class EvaluatorSquareDensity
     Scalar rij_sq; //!< Stored rij_sq from the constructor
     Scalar attr_rcut;
     Scalar rep_rcut;
-    Scalar density_upper_rcut;
-    Scalar density_lower_rcut;
+    Scalar density_rcut;
     Scalar ncut_ij;
     Scalar ncut_ji;
     Scalar A;      //!< attraction parameter

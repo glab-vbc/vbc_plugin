@@ -1,10 +1,9 @@
 import hoomd
 import gsd.hoomd
-import nvtx
 import time
 # import matplotlib.pyplot as plt
 import numpy as np
-from hoomd.sqd_plugin import sqd_potential
+from hoomd.vbc_plugin import vbc_potential
 # from hoomd.md import 
 import argparse
 
@@ -22,20 +21,22 @@ nlist = hoomd.md.nlist.Tree(buffer=0.0, exclusions=('bond',))
 # ph = pair.Hertz(nlist)
 
 if args.potential == 'custom':
-    sqd = sqd_potential.SquareDensity(nlist, default_r_cut=2.0)
+    vbc = vbc_potential.VBC(nlist, default_r_cut=2.0)
 elif args.potential == 'hoomd':
-    sqd = hoomd.md.many_body.SquareDensity(nlist, default_r_cut=2.0)
+    # HOOMD's OWN built-in square-density many-body potential (external API, kept
+    # verbatim for the optional parity comparison — NOT our plugin's naming).
+    vbc = hoomd.md.many_body.SquareDensity(nlist, default_r_cut=2.0)
 
 # a = 10.0
 # b = 10.0
 # c = 1.0
 
 if args.potential == 'custom':
-    sqd.params[('A', 'A')] = dict(A=5.0, B=-5.0,attr_rcut=1.5, rep_rcut=1.0, density_rcut=2.0, ncut_ij=1.0, ncut_ji=1.0)
+    vbc.params[('A', 'A')] = dict(A=5.0, B=-5.0, attr_rcut=1.5, rep_rcut=1.0, density_upper_rcut=2.0, density_lower_rcut=1.5, ncut_ij=1.0, ncut_ji=1.0, use_global_dens=0)
 else:
-    sqd.params[('A', 'A')] = dict(A=5.0, B=5.0)
-# sqd.params[('B', 'B')] = dict(A=a, B=b)
-# sqd.params[('A', 'A')] = dict(A=a, B=b)
+    vbc.params[('A', 'A')] = dict(A=5.0, B=5.0)
+# vbc.params[('B', 'B')] = dict(A=a, B=b)
+# vbc.params[('A', 'A')] = dict(A=a, B=b)
 
 
 
@@ -88,7 +89,7 @@ langevin.gamma["A"] = 10
 
 integrator = hoomd.md.Integrator(dt=0.005,
                                  methods=[langevin],
-                                 forces=[sqd])
+                                 forces=[vbc])
 gsd_writer = hoomd.write.GSD(filename=f'trajectory_{args.potential}_{args.device}.gsd',
                              trigger=hoomd.trigger.Periodic(1000),
                              mode='wb')

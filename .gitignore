@@ -3,3 +3,6 @@ build
 build_cluster
 __pycache__
 .ipynb_checkpoints
+build_full.log
+*.log
+tests/sweep_out

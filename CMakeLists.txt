@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
 
 # name of the plugin
-project(sqd_plugin LANGUAGES C CXX)
+project(vbc_plugin LANGUAGES C CXX)
 
-set(COMPONENT_NAME sqd_plugin)
+set(COMPONENT_NAME vbc_plugin)
 
 # find hoomd first
-find_package(HOOMD 5.0.0 REQUIRED)
+find_package(HOOMD 4.8.0 REQUIRED)
 
 # print where you found it
 message(STATUS "Found HOOMD ${HOOMD_VERSION}: ${HOOMD_INSTALL_PREFIX}/${PYTHON_SITE_INSTALL_DIR}")
@@ -29,13 +29,13 @@ set(_cuda_sources "")
 
 if (ENABLE_HIP)
 set(_cuda_sources 
-    src/PotentialValencySquareDensityGPUKernel.cu
+    src/PotentialValencyVBCGPUKernel.cu
 )
 endif (ENABLE_HIP)
 
 # all the header files
 set(_${COMPONENT_NAME}_headers
-    src/EvaluatorSquareDensity.h
+    src/EvaluatorVBC.h
     src/PotentialValency.h
     src/PotentialValencyGPU.h
 )
@@ -45,7 +45,7 @@ set(_cuda_sources ${_cuda_sources} ${DFFT_CU_SOURCES})
 endif (ENABLE_HIP)
 
 # python file where potentials python calling is defined
-set(py_files src/sqd_potential.py)
+set(py_files src/vbc_potential.py)
 
 # Add the module
 hoomd_add_module(_${COMPONENT_NAME} SHARED ${_${COMPONENT_NAME}_sources} ${_cuda_sources} ${DFFT_SOURCES} ${_${COMPONENT_NAME}_headers} NO_EXTRAS)
