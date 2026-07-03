@@ -6,3 +6,6 @@ __pycache__
 build_full.log
 *.log
 tests/sweep_out
+tests/toy_out
+tests/sweep_out
+examples/_init.gsd
