@@ -9,3 +9,11 @@ tests/sweep_out
 tests/toy_out
 tests/sweep_out
 examples/_init.gsd
+examples/illustration_out.txt
+examples/illustration_percap.csv
+examples/illustration_matrix.csv
+examples/mixtures_momentum.csv
+examples/polymer_momentum.csv
+examples/_figs
+*.bak*
+slurm-*.out
