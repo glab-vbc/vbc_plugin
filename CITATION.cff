@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata in this file."
+title: "vbc_plugin: a valency-capped soft-density pair potential for HOOMD-blue"
+abstract: >-
+  A HOOMD-blue plugin implementing the VBC pair potential: a soft repulsive core
+  and short attractive well with a per-particle-type cap on the number of
+  attractive neighbours - the particle's "valency".
+type: software
+authors:
+  - family-names: Dmitriev
+    given-names: Vladimir
+    affiliation: "Goloborodko lab"
+  - family-names: Gupta
+    given-names: Ankit
+    affiliation: "Goloborodko lab"
+license: BSD-3-Clause
+repository-code: "https://github.com/glab-vbc/vbc_plugin"   
+version: "1.0.0"          
+date-released: "2026-07-17"  
+keywords:
+  - molecular-dynamics
+  - HOOMD-blue
+  - coarse-grained
+  - pair-potential
+  - valency
+references:
+  - type: software
+    title: "HOOMD-blue"
+    repository-code: "https://github.com/glotzerlab/hoomd-blue"
+    authors:
+      - name: "The Regents of the University of Michigan"
