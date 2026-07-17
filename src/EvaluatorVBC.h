@@ -9,13 +9,6 @@
 #endif
 
 #include "hoomd/HOOMDMath.h"
-// #include <iostream>
-/*! \file EvaluatorVBC.h
-    \brief Defines the evaluator class for a three-body vbc potential
-
-   see P. Warren, "Vapor-liquid coexistence in many-bod dissipative particle dynamics"
-   Phys. Rev. E 68, p. 066702 (2003)
-*/
 
 #ifdef __HIPCC__
 #define DEVICE __device__
@@ -29,17 +22,16 @@ namespace hoomd
     {
 namespace md
     {
-//! Class for evaluating the VBC three-body potential
+
 class EvaluatorVBC
     {
     public:
     struct param_type
         {
-        Scalar A;
-        Scalar B;
+        Scalar E_r;
+        Scalar E_a;
         Scalar attr_rcut;
         Scalar rep_rcut;
-        // Scalar density_upper_rcut;
         Scalar density_upper_rcut;
         Scalar density_lower_rcut;
         Scalar ncut_ij;
@@ -47,23 +39,22 @@ class EvaluatorVBC
         Scalar use_global_dens;
 
 #ifdef ENABLE_HIP
-        //! Set CUDA memory hints
+
         void set_memory_hint() const
             {
-            // default implementation does nothing
+
             }
 #endif
 
 #ifndef __HIPCC__
-        param_type() : A(0), B(0), attr_rcut(0), rep_rcut(0), density_upper_rcut(0), density_lower_rcut(0), ncut_ij(0), ncut_ji(0), use_global_dens(0) { }
+        param_type() : E_r(0), E_a(0), attr_rcut(0), rep_rcut(0), density_upper_rcut(0), density_lower_rcut(0), ncut_ij(0), ncut_ji(0), use_global_dens(0) { }
 
         param_type(pybind11::dict v)
             {
-            A = v["A"].cast<Scalar>();
-            B = v["B"].cast<Scalar>();
+            E_r = v["E_r"].cast<Scalar>();
+            E_a = v["E_a"].cast<Scalar>();
             attr_rcut = v["attr_rcut"].cast<Scalar>();
             rep_rcut = v["rep_rcut"].cast<Scalar>();
-            // density_upper_rcut = v["density_upper_rcut"].cast<Scalar>();
             density_upper_rcut = v["density_upper_rcut"].cast<Scalar>();
             density_lower_rcut = v["density_lower_rcut"].cast<Scalar>();
             ncut_ij = v["ncut_ij"].cast<Scalar>();
@@ -74,11 +65,10 @@ class EvaluatorVBC
         pybind11::dict asDict()
             {
             pybind11::dict v;
-            v["A"] = A;
-            v["B"] = B;
+            v["E_r"] = E_r;
+            v["E_a"] = E_a;
             v["attr_rcut"] = attr_rcut;
             v["rep_rcut"] = rep_rcut;
-            // v["density_upper_rcut"] = density_upper_rcut;
             v["density_upper_rcut"] = density_upper_rcut;
             v["density_lower_rcut"] = density_lower_rcut;
             v["ncut_ij"] = ncut_ij;
@@ -94,104 +84,65 @@ class EvaluatorVBC
         __attribute__((aligned(16)));
 #endif
 
-    //! Constructs the evaluator
-    /*! \param _rij Squared distance between particles i and j
-        \param _rcutsq Squared distance at which the potential goes to zero
-        \param _params Per type-pair parameters for this potential
-    */
     DEVICE EvaluatorVBC(
-        Scalar _rij_sq, 
+        Scalar _rij_sq,
         const param_type& _params
-        ): 
-        rij_sq(_rij_sq), 
+        ):
+        rij_sq(_rij_sq),
         attr_rcut(_params.attr_rcut),
         rep_rcut(_params.rep_rcut),
-        // density_rcut(_params.density_rcut),
         density_upper_rcut(_params.density_upper_rcut),
         density_lower_rcut(_params.density_lower_rcut),
         ncut_ij(_params.ncut_ij),
-        ncut_ji(_params.ncut_ji),       
-        A(_params.A), 
-        B(_params.B),
+        ncut_ji(_params.ncut_ji),
+        E_r(_params.E_r),
+        E_a(_params.E_a),
         use_global_dens(_params.use_global_dens)
         {
         }
 
-    //! Set the square distance between particles i and j
     DEVICE void setRij(Scalar rsq)
         {
         rij_sq = rsq;
         }
 
-    //! Set the square distance between particles i and k
     DEVICE void setRik(Scalar rsq)
         {
         rij_sq = rsq;
         }
 
-    //! We have a per-particl excess free energy
     DEVICE static bool hasPerParticleEnergy()
         {
         return true;
         }
 
-    //! We don't need per-particle-pair chi
     DEVICE static bool needsChi()
         {
         return false;
         }
 
-    //! We don't have ik-forces
     DEVICE static bool hasIkForce()
         {
         return false;
         }
 
-    //! The VBC potential needs the bond angle
     DEVICE static bool needsAngle()
         {
         return false;
         }
 
-    //! Set the bond angle value
-    //! \param _cos_th Cosine of the angle between ij and ik
     DEVICE void setAngle(Scalar _cos_th) { }
 
-    //! Check whether a pair of particles is interactive
     DEVICE bool areInteractive()
         {
         return true;
         }
 
-    //! Evaluate the repulsive and attractive terms of the force
-    // DEVICE bool evalRepulsiveAndAttractive(Scalar& fR, Scalar& fA)
-    //     {
-    //     // this method does nothing except checking if we're inside the cut-off
-    //     return (rij_sq < rcutsq);
-    //     }
-
-    //! Evaluate chi (the scalar ik contribution) for this triplet
     DEVICE void evalChi(Scalar& chi) { }
 
-    //! Evaluate chi (the scalar ij contribution) for this triplet
-////////////////////////////////////////////// NEWLY ADDED FUNCTION
-    // DEVICE void evalPhi(Scalar& phi)
-    //     {
-    //     // add up density n_i
-    //     if (rij_sq < rcutsq)
-    //         {
-    //         Scalar norm(15.0 / (2.0 * M_PI));
-    //         Scalar rcut = fast::sqrt(rcutsq);
-    //         norm /= rcutsq * rcut;
-
-    //         Scalar rij = fast::sqrt(rij_sq);
-    //         Scalar fac = Scalar(1.0) - rij / rcut;
-    //         phi += fac * fac * norm;
-    //         }
-    //     }
     DEVICE void evalPhi(Scalar& phi)
         {
-        // add up density n_i
+
         Scalar rij = fast::sqrt(rij_sq);
         if (rij < density_lower_rcut)
             {
@@ -201,7 +152,7 @@ class EvaluatorVBC
             {
             phi += Scalar(0.0);
             }
-        else 
+        else
         {
             phi += pow(Scalar(1.0)-pow((rij-density_lower_rcut)/(density_upper_rcut-density_lower_rcut),2),2);
         }
@@ -209,7 +160,7 @@ class EvaluatorVBC
 
     DEVICE void evalPhiDiv(Scalar& phi)
         {
-        // add up density n_i
+
         Scalar rij = fast::sqrt(rij_sq);
         if (rij < density_lower_rcut)
             {
@@ -219,7 +170,7 @@ class EvaluatorVBC
             {
             phi += Scalar(0.0);
             }
-        else 
+        else
         {
             phi+=Scalar(2.0) * (Scalar(1.0) - pow((rij-density_lower_rcut)/(density_upper_rcut-density_lower_rcut),2)) * (Scalar(-2.0) * (rij-density_lower_rcut)/(pow((density_upper_rcut-density_lower_rcut),2)));
         }
@@ -227,7 +178,7 @@ class EvaluatorVBC
 
     DEVICE void evalOmega(Scalar& W, Scalar phi, Scalar phi_global)
         {
-        // add up density n_i
+
         Scalar local_phi = (use_global_dens) ? phi_global : phi;
         if (local_phi < ncut_ij)
             {
@@ -237,7 +188,7 @@ class EvaluatorVBC
             {
             W += Scalar(0.0);
             }
-        else 
+        else
         {
             W += pow(Scalar(1.0)-pow((local_phi-ncut_ij),2),2);
         }
@@ -245,7 +196,7 @@ class EvaluatorVBC
 
     DEVICE void evalOmegaji(Scalar& W, Scalar phi, Scalar phi_global)
         {
-        // add up density n_i
+
         Scalar local_phi = (use_global_dens) ? phi_global : phi;
         if (local_phi < ncut_ji)
             {
@@ -255,14 +206,14 @@ class EvaluatorVBC
             {
             W += Scalar(0.0);
             }
-        else 
+        else
         {
             W += pow(Scalar(1.0)-pow((local_phi-ncut_ji),2),2);
         }
         }
 
     DEVICE void evalOmegaDiv(Scalar& W, Scalar phi, Scalar phi_global)
-        {   
+        {
             Scalar local_phi = (use_global_dens) ? phi_global : phi;
             if (local_phi < ncut_ij)
             {
@@ -272,14 +223,14 @@ class EvaluatorVBC
             {
                 W += Scalar(0.0);
             }
-            else 
+            else
             {
                 W += Scalar(2.0) * (Scalar(1.0) - pow((local_phi-ncut_ij),2)) * (Scalar(-2.0) * (local_phi-ncut_ij));
             }
         }
     DEVICE void evalOmegajiDiv(Scalar& W, Scalar phi, Scalar phi_global)
         {
-            Scalar local_phi = (use_global_dens) ? phi_global : phi;            
+            Scalar local_phi = (use_global_dens) ? phi_global : phi;
             if (local_phi < ncut_ji)
             {
                 W += Scalar(0.0);
@@ -288,63 +239,34 @@ class EvaluatorVBC
             {
                 W += Scalar(0.0);
             }
-            else 
+            else
             {
                 W+= Scalar(2.0) * (Scalar(1.0) - pow((local_phi-ncut_ji),2)) * (Scalar(-2.0) * (local_phi-ncut_ji));
             }
         }
-    // DEVICE void evalOmega(Scalar& W, Scalar x, Scalar x1, Scalar x2)
-    //     {
-    //         if (x < x1)
-    //         {
-    //             W += Scalar(1.0);
-    //         }
-    //         else if (x > x2)
-    //         {
-    //             W += Scalar(0.0);
-    //         }
-    //         else 
-    //         {
-    //             W+=pow(Scalar(1.0) - pow((x-x1)/(x2-x1),2),2);
-    //         }
-    //     }
-    // DEVICE void evalOmegaDiv(Scalar& W, Scalar x, Scalar x1, Scalar x2)
-    //     {
-    //         if (x < x1)
-    //         {
-    //             W += Scalar(0.0);
-    //         }
-    //         else if (x > x2)
-    //         {
-    //             W += Scalar(0.0);
-    //         }
-    //         else 
-    //         {
-    //             W+= Scalar(2.0) * (Scalar(1.0) - pow((x-x1)/(x2-x1),2)) * (Scalar(-2.0) * (x-x1)/pow((x2-x1),2));
-    //         }
-    //     }
-    DEVICE void evalAttractive(Scalar& attr_eng, Scalar& attr_eng_div) 
-    { 
+
+    DEVICE void evalAttractive(Scalar& attr_eng, Scalar& attr_eng_div)
+    {
         Scalar rij = fast::sqrt(rij_sq);
         if (rij < attr_rcut && rij > rep_rcut)
         {
             Scalar re = (rep_rcut + attr_rcut)/Scalar(2.0);
-            attr_eng += B * pow(Scalar(1.0)-pow((rij-re)/((attr_rcut-rep_rcut)/Scalar(2.0)),2),2);
-            attr_eng_div += Scalar(2.0) * B * (Scalar(1.0)-pow((rij-re)/((attr_rcut-rep_rcut)/Scalar(2.0)),2)) * (Scalar(-2.0) * (rij-re)/pow((attr_rcut-rep_rcut)/Scalar(2.0),2));
+            attr_eng += E_a * pow(Scalar(1.0)-pow((rij-re)/((attr_rcut-rep_rcut)/Scalar(2.0)),2),2);
+            attr_eng_div += Scalar(2.0) * E_a * (Scalar(1.0)-pow((rij-re)/((attr_rcut-rep_rcut)/Scalar(2.0)),2)) * (Scalar(-2.0) * (rij-re)/pow((attr_rcut-rep_rcut)/Scalar(2.0),2));
         }
     }
-    DEVICE void evalRepulsive(Scalar& rep_eng, Scalar& rep_eng_div) 
-    { 
+    DEVICE void evalRepulsive(Scalar& rep_eng, Scalar& rep_eng_div)
+    {
         Scalar rij = fast::sqrt(rij_sq);
         if (rij < rep_rcut)
         {
-            rep_eng += A * pow(Scalar(1.0)-pow(rij/rep_rcut,2),2);
-            rep_eng_div += Scalar(2.0) * A * (Scalar(1.0)-pow(rij/rep_rcut,2)) * (Scalar(-2.0) * rij/pow(rep_rcut,2));
+            rep_eng += E_r * pow(Scalar(1.0)-pow(rij/rep_rcut,2),2);
+            rep_eng_div += Scalar(2.0) * E_r * (Scalar(1.0)-pow(rij/rep_rcut,2)) * (Scalar(-2.0) * rij/pow(rep_rcut,2));
         }
     }
 
     DEVICE void evalForceij(
-        Scalar& force_divr, 
+        Scalar& force_divr,
         Scalar& potential_eng,
         Scalar rep_eng,
         Scalar rep_eng_div,
@@ -357,23 +279,10 @@ class EvaluatorVBC
         Scalar Wrij_div)
     {
         potential_eng += Scalar(0.5) * (rep_eng + W1 * W2 * attr_eng);
-        Scalar local_s_ij = (use_global_dens) ? s_ij_sum : s_ij; 
+        Scalar local_s_ij = (use_global_dens) ? s_ij_sum : s_ij;
         force_divr += Scalar(0.5) * (rep_eng_div + W1 * W2 * attr_eng_div) + Wrij_div * local_s_ij;
     }
 
-
-////////////////////////////////////////////// NEWLY ADDED FUNCTION
-
-
-    DEVICE void evalSelfEnergy(Scalar& energy, Scalar phi)
-        {
-        Scalar rho_i = phi;
-
-        // *excess* free energy of a vdW fluid (subtract ideal gas contribution)
-        energy = Scalar(0.5) * B * (rho_i - A) * (rho_i - A);
-        }
-
-    //! Evaluate the forces due to ijk interactions
     DEVICE bool evalForceik(Scalar fR,
                             Scalar fA,
                             Scalar chi,
@@ -385,9 +294,7 @@ class EvaluatorVBC
         }
 
 #ifndef __HIPCC__
-    //! Get the name of this potential
-    /*! \returns The potential name.
-     */
+
     static std::string getName()
         {
         return std::string("vbc");
@@ -400,19 +307,19 @@ class EvaluatorVBC
 #endif
 
     protected:
-    Scalar rij_sq; //!< Stored rij_sq from the constructor
+    Scalar rij_sq;
     Scalar attr_rcut;
     Scalar rep_rcut;
     Scalar density_upper_rcut;
     Scalar density_lower_rcut;
     Scalar ncut_ij;
     Scalar ncut_ji;
-    Scalar A;      //!< attraction parameter
-    Scalar B;      //!< repulsion parameter
+    Scalar E_r;
+    Scalar E_a;
     Scalar use_global_dens;
     };
 
-    } // end namespace md
-    } // end namespace hoomd
+    }
+    }
 
 #endif

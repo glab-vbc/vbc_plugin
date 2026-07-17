@@ -14,8 +14,6 @@ message(STATUS "Found HOOMD ${HOOMD_VERSION}: ${HOOMD_INSTALL_PREFIX}/${PYTHON_S
 # find pybind11, needed for python binding
 find_package(pybind11 REQUIRED)
 
-#set(ENABLE_HIP ${ENABLE_GPU})
-
 # add hoomd path to cmake
 set(CMAKE_INSTALL_PREFIX ${HOOMD_INSTALL_PREFIX})
 
@@ -40,15 +38,11 @@ set(_${COMPONENT_NAME}_headers
     src/PotentialValencyGPU.h
 )
 
-if (ENABLE_HIP)
-set(_cuda_sources ${_cuda_sources} ${DFFT_CU_SOURCES})
-endif (ENABLE_HIP)
-
 # python file where potentials python calling is defined
 set(py_files src/vbc_potential.py)
 
 # Add the module
-hoomd_add_module(_${COMPONENT_NAME} SHARED ${_${COMPONENT_NAME}_sources} ${_cuda_sources} ${DFFT_SOURCES} ${_${COMPONENT_NAME}_headers} NO_EXTRAS)
+hoomd_add_module(_${COMPONENT_NAME} SHARED ${_${COMPONENT_NAME}_sources} ${_cuda_sources} ${_${COMPONENT_NAME}_headers} NO_EXTRAS)
 
 add_library(HOOMD::_${COMPONENT_NAME} ALIAS _${COMPONENT_NAME})
 

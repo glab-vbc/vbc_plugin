@@ -13,11 +13,6 @@
 #include "hoomd/Autotuner.h"
 #include <iostream>
 
-/*! \file PotentialValencyGPU.h
-    \brief Defines the template class computing certain three-body forces on the GPU
-    \note This header cannot be compiled by nvcc
-*/
-
 #ifdef __HIPCC__
 #error This header cannot be compiled by nvcc
 #endif
@@ -26,30 +21,19 @@ namespace hoomd
     {
 namespace md
     {
-//! Template class for computing three-body potentials and forces on the GPU
-/*! Derived from PotentialValency, this class provides exactly the same interface for computing
-    the three-body potentials and forces.  In the same way as PotentialValency, this class serves
-    as a shell dealing with all the details of looping while the evaluator actually computes the
-    potential and forces.
 
-    \tparam evaluator Evaluator class used to evaluate V(r) and F(r)/r
-    \tparam gpu_cgpf Driver function that calls gpu_compute_valency_forces<evaluator>()
-
-    \sa export_PotentialValencyGPU()
-*/
 template<class evaluator> class PotentialValencyGPU : public PotentialValency<evaluator>
     {
     public:
-    //! Construct the potential
+
     PotentialValencyGPU(std::shared_ptr<SystemDefinition> sysdef,
                         std::shared_ptr<NeighborList> nlist);
-    //! Destructor
+
     virtual ~PotentialValencyGPU();
 
     protected:
-    std::shared_ptr<Autotuner<2>> m_tuner; //!< Autotuner for block size
+    std::shared_ptr<Autotuner<2>> m_tuner;
 
-    //! Actually compute the forces
     virtual void computeForces(uint64_t timestep);
     };
 
@@ -60,7 +44,6 @@ PotentialValencyGPU<evaluator>::PotentialValencyGPU(std::shared_ptr<SystemDefini
     {
     this->m_exec_conf->msg->notice(5) << "Constructing PotentialValencyGPU" << std::endl;
 
-    // can't run on the GPU if there aren't any GPUs in the execution configuration
     if (!this->m_exec_conf->isCUDAEnabled())
         {
         this->m_exec_conf->msg->error()
@@ -69,7 +52,6 @@ PotentialValencyGPU<evaluator>::PotentialValencyGPU(std::shared_ptr<SystemDefini
         throw std::runtime_error("Error initializing PotentialValencyGPU");
         }
 
-    // Initialize autotuner.
     m_tuner.reset(new Autotuner<2>({AutotunerBase::makeBlockSizeRange(this->m_exec_conf),
                                     AutotunerBase::getTppListPow2(this->m_exec_conf)},
                                    this->m_exec_conf,
@@ -84,10 +66,9 @@ template<class evaluator> PotentialValencyGPU<evaluator>::~PotentialValencyGPU()
 
 template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uint64_t timestep)
     {
-    // start by updating the neighborlist
+
     this->m_nlist->compute(timestep);
 
-    // The GPU implementation CANNOT handle a half neighborlist, error out now
     bool third_law = this->m_nlist->getStorageMode() == NeighborList::half;
     if (third_law)
         {
@@ -96,7 +77,6 @@ template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uin
         throw std::runtime_error("Error computing forces in PotentialValencyGPU");
         }
 
-    // access the neighbor list
     ArrayHandle<unsigned int> d_n_neigh(this->m_nlist->getNNeighArray(),
                                         access_location::device,
                                         access_mode::read);
@@ -107,14 +87,12 @@ template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uin
                                     access_location::device,
                                     access_mode::read);
 
-    // access the particle data
     ArrayHandle<Scalar4> d_pos(this->m_pdata->getPositions(),
                                access_location::device,
                                access_mode::read);
 
     BoxDim box = this->m_pdata->getBox();
 
-    // access parameters
     ArrayHandle<Scalar> d_rcutsq(this->m_rcutsq, access_location::device, access_mode::read);
     ArrayHandle<typename evaluator::param_type> d_params(this->m_params,
                                                          access_location::device,
@@ -152,7 +130,7 @@ template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uin
                                threads_per_particle,
                                this->m_exec_conf->dev_prop),
         d_params.data);
-    // std::cout << "block_size: " << block_size << ", threads_per_particle: " << threads_per_particle << std::endl;
+
     if (this->m_exec_conf->isCUDAErrorCheckingEnabled())
         CHECK_CUDA_ERROR();
 
@@ -161,10 +139,7 @@ template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uin
 
 namespace detail
     {
-//! Export this three-body potential to python
-/*! \param name Name of the class in the exported python module
-    \tparam T Evaluator type to export.
-*/
+
 template<class T> void export_PotentialValencyGPU(pybind11::module& m, const std::string& name)
     {
     pybind11::class_<PotentialValencyGPU<T>,
@@ -173,9 +148,9 @@ template<class T> void export_PotentialValencyGPU(pybind11::module& m, const std
         .def(pybind11::init<std::shared_ptr<SystemDefinition>, std::shared_ptr<NeighborList>>());
     }
 
-    } // end namespace detail
-    } // end namespace md
-    } // end namespace hoomd
+    }
+    }
+    }
 
-#endif // ENABLE_HIP
+#endif
 #endif

@@ -1,42 +1,7 @@
 # Copyright (c) 2009-2024 The Regents of the University of Michigan.
 # Part of HOOMD-blue, released under the BSD 3-Clause License.
 
-r"""Implement many body potentials.
-
-Triplet force classes apply a force and virial on every particle in the
-simulation state commensurate with the potential energy:
-
-.. math::
-
-    U_\mathrm{many-body} = \frac{1}{2} \sum_{i=0}^\mathrm{N_particles-1}
-                           \sum_{j \ne i}
-                           \sum_{j \ne k} U(\vec{r}_{ij}, \vec{r}_{ik})
-
-where :math:`\vec{r}_{ij} = \mathrm{minimum\_image}(\vec{r}_j - \vec{r}_i)`.
-`Triplet` applies a short range cutoff for performance and assumes that both
-:math:`U(\vec{r}_{ij}, \vec{r}_{ik})` and its derivatives are 0 when
-:math:`r_{ij} > r_\mathrm{cut}` or :math:`r_{ik} > r_\mathrm{cut}`.
-
-Specifically, the force :math:`\vec{F}` applied to each particle :math:`i` is:
-
-.. math::
-    \vec{F_i} =
-    \begin{cases}
-     -\nabla V(\vec r_{ij}, \vec r_{ik})
-            & r_{ij} < r_{\mathrm{cut}}
-            \land r_{ik} < r_{\mathrm{cut}} \\
-        0 & \mathrm{otherwise}
-    \end{cases}
-
-The per particle energy terms are:
-
-.. math::
-
-    U_i = \frac{1}{2} \sum_{j \ne i}
-          \sum_{j \ne k} U(\vec{r}_{ij}, \vec{r}_{ik})
-          [r_{ij} < r_{\mathrm{cut}} \land r_{ik} < r_{\mathrm{cut}}]
-"""
-
+"""VBC valency-capped soft density pair potential - HOOMD plugin Python API."""
 import copy
 import warnings
 
@@ -48,36 +13,16 @@ from hoomd.md import _md
 from hoomd.md.force import Force
 from hoomd.vbc_plugin import _vbc_plugin
 
-
+# ---------------------------------------------------------------------------
+# NOTE: the `Triplet` base class below is copied verbatim from HOOMD-blue
+# v4.8.2 (hoomd/md/many_body.py). The only functional change is in
+# `_attach_hook`, which resolves the compiled C++ class from this plugin's
+# `_vbc_plugin` module instead of HOOMD's built-in `_md`. It is kept as a
+# local copy rather than `from hoomd.md.many_body import Triplet` to
+# insulate the plugin from changes to that semi-private HOOMD API across
+# versions.
+# ---------------------------------------------------------------------------
 class Triplet(Force):
-    """Base class triplet force.
-
-    `Triplet` is the base class for many-body triplet forces.
-
-    Warning:
-        This class should not be instantiated by users. The class can be used
-        for `isinstance` or `issubclass` checks.
-
-    .. py:attribute:: r_cut
-
-        *r_cut* :math:`[\\mathrm{length}]`, *optional*: defaults to the value
-        ``default_r_cut`` specified on construction.
-
-        Type: `TypeParameter` [`tuple` [``particle_type``, ``particle_type``],
-        `float`])
-
-    .. py:attribute:: nlist
-
-        Neighbor list used to compute the triplet potential.
-
-        Type: `hoomd.md.nlist.NeighborList`
-
-    Warning:
-        Currently HOOMD-blue does not support reverse force communication
-        between MPI domains on the GPU. Since reverse force communication is
-        required for the calculation of three-body forces, attempting to use
-        this potential on the GPU with MPI will result in an error.
-    """
 
     def __init__(self, nlist, default_r_cut=None):
         super().__init__()
@@ -106,7 +51,7 @@ class Triplet(Force):
         if self.nlist._attached and self.nlist._simulation != self._simulation:
             warnings.warn(
                 f"{self} object is creating a new equivalent neighbor list."
-                
+
                 f" This is happending since the force is moving to a new "
                 f"simulation. Explicitly set the nlist to hide this warning.",
                 RuntimeWarning)
@@ -122,76 +67,70 @@ class Triplet(Force):
                             self.nlist._cpp_obj)
 
 
+class _ValencyParams(TypeParameter):
+    """`params` accessor that keeps the asymmetric ncut_ij/ncut_ji aligned with
+    the alphabetically-sorted type-pair key HOOMD stores under: on write it hands
+    HOOMD an already-canonical entry (sorted couple + swapped caps); on read it
+    swaps the caps back so a reversed query round-trips to what the user typed."""
+
+    @staticmethod
+    def _reversed_pair(key):
+        return (isinstance(key, tuple) and len(key) == 2
+                and all(isinstance(k, str) for k in key)
+                and key[0] > key[1])
+
+    def __setitem__(self, key, value):
+        if (self._reversed_pair(key) and isinstance(value, dict)
+                and 'ncut_ij' in value and 'ncut_ji' in value):
+            key = (key[1], key[0])
+            value = dict(value)
+            value['ncut_ij'], value['ncut_ji'] = value['ncut_ji'], value['ncut_ij']
+        super().__setitem__(key, value)
+
+    def __getitem__(self, key):
+        if not self._reversed_pair(key):
+            return super().__getitem__(key)
+        value = super().__getitem__((key[1], key[0]))
+        try:
+            swap = 'ncut_ij' in value and 'ncut_ji' in value
+        except TypeError:
+            swap = False
+        if swap:
+            value = dict(value)
+            value['ncut_ij'], value['ncut_ji'] = value['ncut_ji'], value['ncut_ij']
+        return value
+
+
 class VBC(Triplet):
-    r"""Soft force for simulating a van der Waals liquid.
+    """Valency-capped soft density pair potential.
+
+    A many-body force giving each particle a repulsive core, a short attractive
+    well, and a cap on its number of attractive neighbours - valency.
+    ``use_global_dens`` selects whether the cap limits the total neighbour count
+    (1) or the count per neighbour type (0).
 
     Args:
-        nlist (hoomd.md.nlist.NeighborList): Neighbor list
-        default_r_cut (float): Default cutoff radius :math:`[\mathrm{length}]`.
+        nlist (hoomd.md.nlist.NeighborList): Neighbor list.
+        default_r_cut (float): Default cutoff radius.
 
-    `VBC` that the vbc three-body force should on every
-    particle in the simulation state.
-
-    The self energy per particle takes the form:
-
-    .. math::
-
-        \Psi^{ex} = B (\rho - A)^2
-
-    which gives a pair-wise additive, three-body force:
-
-    .. math::
-
-        \vec{f}_{ij} = \left( B (n_i - A) + B (n_j - A) \right) w'_{ij}
-        \vec{e}_{ij}
-
-    Here, :math:`w_{ij}` is a quadratic, normalized weighting function,
-
-    .. math::
-
-        w(x) = \frac{15}{2 \pi r_{c,\mathrm{weight}}^3}
-               (1-r/r_{c,\mathrm{weight}})^2
-
-    The local density at the location of particle *i* is defined as
-
-    .. math::
-
-        n_i = \sum\limits_{j\neq i} w_{ij}
-              \left(\big| \vec r_i - \vec r_j \big|\right)
-
-    .. py:attribute:: params
-
-        The VBC potential parameters. The dictionary has the
-        following keys:
-
-        * ``A`` (`float`, **required**) - :math:`A` - mean density
-          (*default*:0) :math:`[\mathrm{length}^{-2}]` in 2D and
-          :math:`[\mathrm{length}^{-3}]` in 3D
-        * ``B`` (`float`, **required**) - :math:`B` - coefficient of the
-          harmonic density term
-          :math:`[\mathrm{energy} \cdot \mathrm{length}^4]` in 2D and
-          :math:`[\mathrm{energy} \cdot \mathrm{length}^6]` in 3D
-
-        Type: `TypeParameter` [`tuple` [``particle_type``, ``particle_type``],
-        `dict`]
+    Per-type-pair ``params`` keys: ``E_r`` (repulsion energy), ``E_a`` (attraction
+    energy), ``rep_rcut`` / ``attr_rcut`` (repulsion / attraction cutoffs),
+    ``density_lower_rcut`` / ``density_upper_rcut`` (density-counting window),
+    ``ncut_ij`` / ``ncut_ji`` (valency caps of the pair's two types), and
+    ``use_global_dens`` (0 = per-type cap, 1 = total cap).
 
     Example::
 
-        nl = nlist.Cell()
-        vbc = vbc_potential.VBC(nl, default_r_cut=3.0)
-        vbc.params[('A', 'B')] = dict(A=1.0, B=2.0)
-        vbc.params[('B', 'B')] = dict(A=2.0, B=2.0, default_r_on=1.0)
-
-    For further details regarding this multibody potential, see
-
-    [1] P. B. Warren, "Vapor-liquid coexistence in many-body dissipative
-    particle dynamics" Phys. Rev. E. Stat. Nonlin. Soft Matter Phys., vol. 68,
-    no. 6 Pt 2, p. 066702, 2003.
+        nl = hoomd.md.nlist.Cell(buffer=0.4)
+        vbc = vbc_potential.VBC(nl, default_r_cut=2.0)
+        vbc.params[('V1', 'V2')] = dict(E_r=20, E_a=-4, rep_rcut=1.0, attr_rcut=1.5,
+                                        density_lower_rcut=1.5, density_upper_rcut=2.0,
+                                        ncut_ij=1, ncut_ji=1, use_global_dens=1)
     """
     _cpp_class_name = "PotentialVBC2"
 
     def __init__(self, nlist, default_r_cut=None):
         super().__init__(nlist, default_r_cut)
-        params = TypeParameter('params', 'particle_types',
-                               TypeParameterDict(A=0.0, B=float, attr_rcut=1.0, rep_rcut=1.0, density_upper_rcut=1.0, density_lower_rcut=0.5, ncut_ij=1.0, ncut_ji=1.0, use_global_dens=0, len_keys=2))
+        params = _ValencyParams('params', 'particle_types',
+                                TypeParameterDict(E_r=0.0, E_a=float, attr_rcut=1.5, rep_rcut=1.0, density_upper_rcut=2.0, density_lower_rcut=1.5, ncut_ij=1.0, ncut_ji=1.0, use_global_dens=0, len_keys=2))
         self._add_typeparam(params)

@@ -2,8 +2,6 @@
 // Part of HOOMD-blue, released under the BSD 3-Clause License.
 
 #include "hip/hip_runtime.h"
-// Copyright (c) 2009-2021 The Regents of the University of Michigan
-// This file is part of the HOOMD-blue project, released under the BSD 3-Clause License.
 
 #include "hoomd/HOOMDMath.h"
 #include "hoomd/Index1D.h"
@@ -11,12 +9,8 @@
 #include "hoomd/TextureTools.h"
 #ifdef __HIPCC__
 #include "hoomd/WarpTools.cuh"
-#endif // __HIPCC__
+#endif
 #include <assert.h>
-
-/*! \file PotentialValencyGPU.cuh
-    \brief Defines templated GPU kernel code for calculating certain three-body forces
-*/
 
 #ifndef __POTENTIAL_VALENCY_GPU_CUH__
 #define __POTENTIAL_VALENCY_GPU_CUH__
@@ -27,18 +21,16 @@ namespace md
     {
 namespace kernel
     {
-//! Maximum number of threads (width of a warp)
-// currently this is hardcoded, we should set it to the max of platforms
+
 #if defined(__HIP_PLATFORM_NVCC__)
 const int gpu_valency_max_tpp = 32;
 #elif defined(__HIP_PLATFORM_HCC__)
 const int gpu_valency_max_tpp = 64;
 #endif
 
-//! Wraps arguments to gpu_cgpf
 struct valency_args_t
     {
-    //! Construct a valency_args_t
+
     valency_args_t(Scalar4* _d_force,
                    const unsigned int _N,
                    const unsigned int _Nghosts,
@@ -63,25 +55,25 @@ struct valency_args_t
           size_nlist(_size_nlist), ntypes(_ntypes), block_size(_block_size), tpp(_tpp),
           devprop(_devprop) {};
 
-    Scalar4* d_force;           //!< Force to write out
-    const unsigned int N;       //!< Number of particles
-    const unsigned int Nghosts; //!< Number of ghost particles
-    Scalar* d_virial;           //!< Virial to write out
-    const size_t virial_pitch;  //!< Pitch for N*6 virial array
-    bool compute_virial;        //!< True if we are supposed to compute the virial
-    const Scalar4* d_pos;       //!< particle positions
+    Scalar4* d_force;
+    const unsigned int N;
+    const unsigned int Nghosts;
+    Scalar* d_virial;
+    const size_t virial_pitch;
+    bool compute_virial;
+    const Scalar4* d_pos;
     Scalar* d_phi_ab_arr;
-    const BoxDim box;           //!< Simulation box in GPU format
+    const BoxDim box;
     const unsigned int*
-        d_n_neigh;               //!< Device array listing the number of neighbors on each particle
-    const unsigned int* d_nlist; //!< Device array listing the neighbors of each particle
-    const size_t* d_head_list;   //!< Indexes for accessing d_nlist
-    const Scalar* d_rcutsq;      //!< Device array listing r_cut squared per particle type pair
-    const size_t size_nlist;     //!< Number of elements in the neighborlist
-    const unsigned int ntypes;   //!< Number of particle types in the simulation
-    const unsigned int block_size;  //!< Block size to execute
-    const unsigned int tpp;         //!< Threads per particle
-    const hipDeviceProp_t& devprop; //!< CUDA device properties
+        d_n_neigh;
+    const unsigned int* d_nlist;
+    const size_t* d_head_list;
+    const Scalar* d_rcutsq;
+    const size_t size_nlist;
+    const unsigned int ntypes;
+    const unsigned int block_size;
+    const unsigned int tpp;
+    const hipDeviceProp_t& devprop;
     };
 
 #ifdef __HIPCC__
@@ -89,12 +81,7 @@ struct valency_args_t
 #if HOOMD_LONGREAL_SIZE == 64
 
 #if (__CUDA_ARCH__ < 600)
-//! atomicAdd function for double-precision floating point numbers
-/*! This function is only used when hoomd is compiled for double precision on the GPU.
 
-    \param address Address to write the double to
-    \param val Value to add to address
-*/
 __device__ inline double myAtomicAdd(double* address, double val)
     {
     unsigned long long int* address_as_ull = (unsigned long long int*)address;
@@ -110,7 +97,7 @@ __device__ inline double myAtomicAdd(double* address, double val)
 
     return __longlong_as_double(old);
     }
-#else // CUDA_ARCH > 600)
+#else
 __device__ inline double myAtomicAdd(double* address, double val)
     {
     return atomicAdd(address, val);
@@ -118,7 +105,6 @@ __device__ inline double myAtomicAdd(double* address, double val)
 #endif
 #endif
 
-// workaround for HIP bug
 #ifdef __HIP_PLATFORM_HCC__
 __device__ inline float myAtomicAdd(float* address, float val)
     {
@@ -140,47 +126,6 @@ inline __device__ float myAtomicAdd(float* address, float val)
     }
 #endif
 
-//! Kernel for calculating the Valency forces
-/*! This kernel is called to calculate the forces on all N particles. Actual evaluation of the
-   potentials and forces for each pair is handled via the template class \a evaluator.
-
-    \param d_force Device memory to write computed forces
-    \param N Number of particles in the system
-    \param d_pos Positions of all the particles
-    
-    \param box Box dimensions used to implement periodic boundary conditions
-    \param d_n_neigh Device memory array listing the number of neighbors for each particle
-    \param d_nlist Device memory array containing the neighbor list contents
-    \param d_head_list Indexes for reading \a d_nlist
-    \param d_params Parameters for the potential, stored per type pair
-    \param d_rcutsq rcut squared, stored per type pair
-    \param d_ronsq ron squared, stored per type pair
-    \param ntypes Number of types in the simulation
-
-    \a d_params, \a d_rcutsq, and \a d_ronsq must be indexed with an Index2DUpperTriangular(typei,
-   typej) to access the unique value for that type pair. These values are all cached into shared
-   memory for quick access, so a dynamic amount of shared memory must be allocated for this kernel
-   launch. The amount is (2*sizeof(Scalar) + sizeof(typename evaluator::param_type)) *
-   typpair_idx.getNumElements()
-
-    Certain options are controlled via template parameters to avoid the performance hit when they
-   are not enabled. \tparam evaluator EvaluatorPair class to evaluate V(r) and -delta V(r)/r
-
-    <b>Implementation details</b>
-    Each block will calculate the forces on a block of particles.
-    Each thread will calculate the total force on one particle.
-    The neighborlist is arranged in columns so that reads are fully coalesced when doing this.
-*/
-//! Density kernel — fills d_phi_ab_arr's per-type slots AND its global-density column.
-/*! Run once per timestep, BEFORE the force kernel.  The kernel launch itself
-    is the grid-wide barrier that guarantees every particle's per-type
-    densities are written before the force kernel reads `cur_j`'s global
-    density (which can live in another block).
-
-    Layout of d_phi_ab_arr after this kernel finishes:
-        d_phi_ab_arr[i * (ntypes + 1) + β]      for β ∈ [0, ntypes)   — per-type density
-        d_phi_ab_arr[i * (ntypes + 1) + ntypes]                       — global density Σ_β
-*/
 template<class evaluator, int tpp>
 __global__ void gpu_compute_density_kernel(const unsigned int N,
                                            const Scalar4* d_pos,
@@ -196,7 +141,6 @@ __global__ void gpu_compute_density_kernel(const unsigned int N,
     Index2D typpair_idx(ntypes);
     const unsigned int num_typ_parameters = typpair_idx.getNumElements();
 
-    // shared arrays for per-type-pair parameters
     HIP_DYNAMIC_SHARED(char, s_data)
     typename evaluator::param_type* s_params
         = (typename evaluator::param_type*)(&s_data[0]);
@@ -213,7 +157,6 @@ __global__ void gpu_compute_density_kernel(const unsigned int N,
         }
     __syncthreads();
 
-    // particle handled by this thread group (tpp threads share one idx)
     unsigned int idx = blockIdx.x * (blockDim.x / tpp) + threadIdx.x / tpp;
     if (idx >= N)
         return;
@@ -222,9 +165,6 @@ __global__ void gpu_compute_density_kernel(const unsigned int N,
     Scalar4 postypei = __ldg(d_pos + idx);
     Scalar3 posi = make_scalar3(postypei.x, postypei.y, postypei.z);
 
-    // accumulator for THIS thread's contribution to the global density at idx.
-    // After the neighbour loop closes we reduce it across the `tpp` threads
-    // that share idx, then one thread writes the total to the extra column.
     Scalar phi_partial = Scalar(0.0);
 
     if (evaluator::hasPerParticleEnergy())
@@ -250,21 +190,16 @@ __global__ void gpu_compute_density_kernel(const unsigned int N,
             Scalar local_phi = Scalar(0.0);
             eval.evalPhi(local_phi);
 
-            // contribute to BOTH the per-type slot (atomic, because multiple
-            // threads of this idx may target the same type-j slot) AND the
-            // per-thread running global sum (no atomic — local accumulator).
             myAtomicAdd(&d_phi_ab_arr[idx * (ntypes + 1) + __scalar_as_int(postypej.w)],
                         local_phi);
             phi_partial += local_phi;
             }
         }
 
-    // reduce per-thread partials across the warp-lane group sharing this idx
     Scalar full_gsum = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(phi_partial);
     if ((threadIdx.x % tpp) == 0)
         d_phi_ab_arr[idx * (ntypes + 1) + ntypes] = full_gsum;
     }
-
 
 template<class evaluator, unsigned char compute_virial, int tpp>
 __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
@@ -284,7 +219,6 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
     Index2D typpair_idx(ntypes);
     const unsigned int num_typ_parameters = typpair_idx.getNumElements();
 
-    // shared arrays for per type pair parameters
     HIP_DYNAMIC_SHARED(char, s_data)
     typename evaluator::param_type* s_params = (typename evaluator::param_type*)(&s_data[0]);
     Scalar* s_rcutsq
@@ -292,7 +226,6 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
 
     Scalar* s_phi_ab = s_rcutsq + num_typ_parameters;
 
-    // load in the per type pair parameters
     for (unsigned int cur_offset = 0; cur_offset < num_typ_parameters; cur_offset += blockDim.x)
         {
         if (cur_offset + threadIdx.x < num_typ_parameters)
@@ -306,41 +239,24 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
 
     for (unsigned int i = 0; i < ntypes; ++i)
         {
-        // reset phi term
+
         s_phi_ab[threadIdx.x * ntypes + i] = Scalar(0.0);
         }
 
-    // start by identifying which particle we are to handle
     unsigned int idx = blockIdx.x * (blockDim.x / tpp) + threadIdx.x / tpp;
 
     if (idx >= N)
         return;
 
-    // load in the length of the neighbor list (MEM_TRANSFER: 4 bytes)
     unsigned int n_neigh = d_n_neigh[idx];
 
-    // read in the position of the particle
     Scalar4 postypei = __ldg(d_pos + idx);
     Scalar3 posi = make_scalar3(postypei.x, postypei.y, postypei.z);
 
-    // initialize the force to 0
     Scalar4 forcei = make_scalar4(Scalar(0.0), Scalar(0.0), Scalar(0.0), Scalar(0.0));
 
-    // Scalar viriali_xx(0.0);
-    // Scalar viriali_xy(0.0);
-    // Scalar viriali_xz(0.0);
-    // Scalar viriali_yy(0.0);
-    // Scalar viriali_yz(0.0);
-    // Scalar viriali_zz(0.0);
-
-    // Phase 1 (per-type density fill + global-density write) is now done by
-    // gpu_compute_density_kernel BEFORE this kernel is launched.  The
-    // kernel launch boundary is the grid-wide barrier, guaranteeing every
-    // particle (in any block) has its column-`ntypes` global density
-    // settled before we read it here for both idx AND cur_j.
     Scalar phi_ab_idx_sum = d_phi_ab_arr[idx * (ntypes + 1) + ntypes];
 
-    // prefetch neighbor index
     const size_t head_idx = d_head_list[idx];
     unsigned int cur_j = 0;
     unsigned int next_j(0);
@@ -348,34 +264,26 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
 
     next_j = threadIdx.x % tpp < n_neigh ? __ldg(d_nlist + my_head + threadIdx.x % tpp) : 0;
 
-    // loop over neighbors in strided way, for local phi calculation
     for (int neigh_idx = threadIdx.x % tpp; neigh_idx < n_neigh; neigh_idx += tpp)
         {
-        // read the current neighbor index (MEM TRANSFER: 4 bytes)
-        // prefetch the next value and set the current one
+
         cur_j = next_j;
         if (neigh_idx + tpp < n_neigh)
             {
             next_j = __ldg(d_nlist + head_idx + neigh_idx + tpp);
             }
 
-        // read the position of j (MEM TRANSFER: 16 bytes)
         Scalar4 postypej = __ldg(d_pos + cur_j);
         Scalar3 posj = make_scalar3(postypej.x, postypej.y, postypej.z);
 
-        // initialize the force on j
         Scalar4 forcej = make_scalar4(Scalar(0.0), Scalar(0.0), Scalar(0.0), Scalar(0.0));
 
-        // compute r_ij (FLOPS: 3)
         Scalar3 dxij = posi - posj;
 
-        // apply periodic boundary conditions (FLOPS: 12)
         dxij = box.minImage(dxij);
 
-        // compute rij_sq (FLOPS: 5)
         Scalar rij_sq = dot(dxij, dxij);
 
-        // access the per type-pair parameters
         unsigned int typpair
             = typpair_idx(__scalar_as_int(postypei.w), __scalar_as_int(postypej.w));
         Scalar rcutsq = s_rcutsq[typpair];
@@ -387,10 +295,6 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
         Scalar attr_eng_div = Scalar(0.0);
         evalij.evalAttractive(attr_eng, attr_eng_div);
 
-        // Ω uses i's global density (phi_ab_idx_sum); Ω_ji needs j's global
-        // density — looked up from the precomputed column at cur_j.  This is
-        // the asymmetric-density fix that restores Newton's 3rd law for
-        // mixed-ncut pairs.
         Scalar phi_ab_jdx_sum = d_phi_ab_arr[cur_j * (ntypes + 1) + ntypes];
 
         Scalar W1_div = Scalar(0.0);
@@ -399,9 +303,6 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
         evalij.evalOmegaji(W2, d_phi_ab_arr[cur_j * (ntypes + 1) + __scalar_as_int(postypei.w)], phi_ab_jdx_sum);
 
         s_phi_ab[threadIdx.x * ntypes + __scalar_as_int(postypej.w)] += W1_div * W2 * attr_eng;
-        //s_phi_ab[threadIdx.x + __scalar_as_int(postypej.w)] += W1_div * W2 * attr_eng;
-        //__syncthreads();
-        //myAtomicAdd(&s_phi_ab[threadIdx.x * ntypes + __scalar_as_int(postypej.w)], W1_div * W2 * attr_eng);
 
         }
     __syncthreads();
@@ -409,21 +310,15 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
     for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
             {
             Scalar phi = s_phi_ab[threadIdx.x * ntypes + typ_b];
-            //Scalar phi = s_phi_ab[threadIdx.x + typ_b];
 
-            // reduce in warp
             phi = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(phi);
 
-            // broadcast into shared mem
-            //s_phi_ab[threadIdx.x + typ_b]
             s_phi_ab[threadIdx.x * ntypes + typ_b]
                 = hoomd::detail::WarpScan<Scalar, tpp>().Broadcast(phi, 0);
             s_phi_ab_sum += hoomd::detail::WarpScan<Scalar, tpp>().Broadcast(phi, 0);
             }
     __syncthreads();
-    
-    // prefetch neighbor index
-    // head_idx = d_head_list[idx];
+
     cur_j = 0;
     next_j = 0;
     my_head = d_head_list[idx];
@@ -432,114 +327,35 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
 
     for (int neigh_idx = threadIdx.x % tpp; neigh_idx < n_neigh; neigh_idx += tpp)
         {
-        // read the current neighbor index (MEM TRANSFER: 4 bytes)
-        // prefetch the next value and set the current one
+
         cur_j = next_j;
         if (neigh_idx + tpp < n_neigh)
             {
             next_j = __ldg(d_nlist + head_idx + neigh_idx + tpp);
             }
 
-        // read the position of j (MEM TRANSFER: 16 bytes)
         Scalar4 postypej = __ldg(d_pos + cur_j);
         Scalar3 posj = make_scalar3(postypej.x, postypej.y, postypej.z);
 
-        // initialize the force on j
         Scalar4 forcej = make_scalar4(Scalar(0.0), Scalar(0.0), Scalar(0.0), Scalar(0.0));
 
-        // Scalar virialj_xx(0.0);
-        // Scalar virialj_xy(0.0);
-        // Scalar virialj_xz(0.0);
-        // Scalar virialj_yy(0.0);
-        // Scalar virialj_yz(0.0);
-        // Scalar virialj_zz(0.0);
-
-        // compute r_ij (FLOPS: 3)
         Scalar3 dxij = posi - posj;
 
-        // apply periodic boundary conditions (FLOPS: 12)
         dxij = box.minImage(dxij);
 
-        // compute rij_sq (FLOPS: 5)
         Scalar rij_sq = dot(dxij, dxij);
         Scalar rij_abs = fast::sqrt(rij_sq);
-        // access the per type-pair parameters
+
         unsigned int typpair
             = typpair_idx(__scalar_as_int(postypei.w), __scalar_as_int(postypej.w));
         Scalar rcutsq = s_rcutsq[typpair];
         const typename evaluator::param_type& param = s_params[typpair];
 
-        // compute the base repulsive and attractive terms of the potential
-        // Scalar fR = Scalar(0.0);
-        // Scalar fA = Scalar(0.0);
-        // evaluator eval(rij_sq, rcutsq, param);
-        // bool evaluatedij = eval.evalRepulsiveAndAttractive(fR, fA);
-
-        // if (evaluatedij)
-        //     {
-            // Scalar chi = Scalar(0.0);
-
-            // if (evaluator::needsChi())
-            //     {
-            //     // compute chi
-            //     unsigned int cur_k = 0;
-            //     unsigned int next_k(0);
-            //     next_k = __ldg(d_nlist + head_idx);
-
-            //     // loop over neighbors one by one
-            //     for (int neigh_idy = 0; neigh_idy < n_neigh; neigh_idy++)
-            //         {
-            //         // read the current index of k and prefetch the next one
-            //         cur_k = next_k;
-            //         next_k = __ldg(d_nlist + head_idx + neigh_idy + 1);
-
-            //         // get the position of neighbor k
-            //         Scalar4 postypek = __ldg(d_pos + cur_k);
-            //         Scalar3 posk = make_scalar3(postypek.x, postypek.y, postypek.z);
-
-            //         // get the type pair parameters for i and k
-            //         typpair
-            //             = typpair_idx(__scalar_as_int(postypei.w), __scalar_as_int(postypek.w));
-            //         Scalar temp_rcutsq = s_rcutsq[typpair];
-            //         typename evaluator::param_type& temp_param = s_params[typpair];
-
-            //         evaluator temp_eval(rij_sq, temp_rcutsq, temp_param);
-            //         bool temp_evaluated = temp_eval.areInteractive();
-
-            //         if (cur_k != cur_j && temp_evaluated)
-            //             {
-            //             // compute rik
-            //             Scalar3 dxik = posi - posk;
-
-            //             // apply the periodic boundary conditions
-            //             dxik = box.minImage(dxik);
-
-            //             // compute rik_sq
-            //             Scalar rik_sq = dot(dxik, dxik);
-
-            //             // compute the bond angle (if needed)
-            //             Scalar cos_th = Scalar(0.0);
-            //             if (evaluator::needsAngle())
-            //                 cos_th = dot(dxij, dxik) * fast::rsqrt(rij_sq * rik_sq);
-            //             else
-            //                 cos_th += Scalar(1.0); // shuts up the compiler warning
-
-            //             // set up the evaluator
-            //             eval.setRik(rik_sq);
-            //             if (evaluator::needsAngle())
-            //                 eval.setAngle(cos_th);
-
-            //             // compute the partial chi term
-            //             eval.evalChi(chi);
-            //             }
-            //         }
-            //     }
-            // evaluate the force and energy from the ij interaction
             Scalar force_divr = Scalar(0.0);
             Scalar potential_eng = Scalar(0.0);
 
             evaluator evalij(rij_sq, param);
-            
+
             Scalar rep_eng = Scalar(0.0);
             Scalar rep_eng_div = Scalar(0.0);
             Scalar attr_eng = Scalar(0.0);
@@ -547,9 +363,6 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
             evalij.evalRepulsive(rep_eng, rep_eng_div);
             evalij.evalAttractive(attr_eng, attr_eng_div);
 
-            // Same fix as in the W1_div / W2 loop above: Ω uses i's global
-            // density, Ω_ji uses j's global density (from the precomputed
-            // column).  Required for Newton's 3rd law with asymmetric ncut.
             Scalar phi_ab_jdx_sum = d_phi_ab_arr[cur_j * (ntypes + 1) + ntypes];
 
             Scalar W1 = Scalar(0.0);
@@ -560,100 +373,43 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
             Scalar Wrij_div = Scalar(0.0);
             evalij.evalPhiDiv(Wrij_div);
 
-            evalij.evalForceij(force_divr, 
+            evalij.evalForceij(force_divr,
                                 potential_eng,
                                 rep_eng,
                                 rep_eng_div,
                                 attr_eng,
                                 attr_eng_div,
                                 s_phi_ab[threadIdx.x * ntypes + __scalar_as_int(postypej.w)],
-                                //s_phi_ab[threadIdx.x + __scalar_as_int(postypej.w)],
+
                                 s_phi_ab_sum,
                                 W1,
                                 W2,
                                 Wrij_div);
 
-            // if (idx==0){
-                // printf("force_divr: %f, potential_eng: %f, rep_eng: %f, rep_eng_div: %f, attr_eng: %f, attr_eng_div: %f, W1: %f, W2: %f, Wrij_div: %f\n",
-                        // force_divr, potential_eng, rep_eng, rep_eng_div, attr_eng, attr_eng_div, W1, W2, Wrij_div);
-            // }
-
-            // Scalar bij = Scalar(0.0);
-            // const Scalar& phi = s_phi_ab[threadIdx.x * ntypes + __scalar_as_int(postypej.w)];
-            // eval.evalForceij(fR, fA, chi, phi, bij, force_divr, potential_eng);
-
-            // add the forces and energies to their respective particles
-            // Scalar2 v_coeffs = make_scalar2(Scalar(1.0 / 6.0) * rij_sq, Scalar(0.0));
             forcei.x -= dxij.x * (force_divr/rij_abs);
             forcei.y -= dxij.y * (force_divr/rij_abs);
             forcei.z -= dxij.z * (force_divr/rij_abs);
-
-            // if (compute_virial)
-            //     {
-            //     Scalar force_div2r = Scalar(0.5) * force_divr;
-            //     viriali_xx += force_div2r * dxij.x * dxij.x;
-            //     viriali_xy += force_div2r * dxij.x * dxij.y;
-            //     viriali_xz += force_div2r * dxij.x * dxij.z;
-            //     viriali_yy += force_div2r * dxij.y * dxij.y;
-            //     viriali_yz += force_div2r * dxij.y * dxij.z;
-            //     viriali_zz += force_div2r * dxij.z * dxij.z;
-            //     }
 
             forcej.x += dxij.x * (force_divr/rij_abs);
             forcej.y += dxij.y * (force_divr/rij_abs);
             forcej.z += dxij.z * (force_divr/rij_abs);
 
-            // if (compute_virial)
-            //     {
-            //     Scalar force_div2r = Scalar(0.5) * force_divr;
-            //     virialj_xx += force_div2r * dxij.x * dxij.x;
-            //     virialj_xy += force_div2r * dxij.x * dxij.y;
-            //     virialj_xz += force_div2r * dxij.x * dxij.z;
-            //     virialj_yy += force_div2r * dxij.y * dxij.y;
-            //     virialj_yz += force_div2r * dxij.y * dxij.z;
-            //     virialj_zz += force_div2r * dxij.z * dxij.z;
-            //     }
-
-            // potential energy of j must be halved (pair iteration visits each
-            // (i,j) once and gives half the pair energy to each side)
             forcej.w += Scalar(0.5) * potential_eng;
 
-            // potential energy per particle must be halved (same reason)
             forcei.w += Scalar(0.5) * potential_eng;
 
-            // write out the result for particle j
             myAtomicAdd(&d_force[cur_j].x, forcej.x);
             myAtomicAdd(&d_force[cur_j].y, forcej.y);
             myAtomicAdd(&d_force[cur_j].z, forcej.z);
             myAtomicAdd(&d_force[cur_j].w, forcej.w);
 
-            // if (compute_virial)
-            //     {
-            //     myAtomicAdd(&d_virial[0 * virial_pitch + cur_j], virialj_xx);
-            //     myAtomicAdd(&d_virial[1 * virial_pitch + cur_j], virialj_xy);
-            //     myAtomicAdd(&d_virial[2 * virial_pitch + cur_j], virialj_xz);
-            //     myAtomicAdd(&d_virial[3 * virial_pitch + cur_j], virialj_yy);
-            //     myAtomicAdd(&d_virial[4 * virial_pitch + cur_j], virialj_yz);
-            //     myAtomicAdd(&d_virial[5 * virial_pitch + cur_j], virialj_zz);
-            //     }
-            // }
         }
-    // now that the force calculation is complete, write out the result (MEM TRANSFER: 20 bytes)
+
     myAtomicAdd(&d_force[idx].x, forcei.x);
     myAtomicAdd(&d_force[idx].y, forcei.y);
     myAtomicAdd(&d_force[idx].z, forcei.z);
     myAtomicAdd(&d_force[idx].w, forcei.w);
 
-    // if (compute_virial)
-    //     {
-    //     myAtomicAdd(&d_virial[0 * virial_pitch + idx], viriali_xx);
-    //     myAtomicAdd(&d_virial[1 * virial_pitch + idx], viriali_xy);
-    //     myAtomicAdd(&d_virial[2 * virial_pitch + idx], viriali_xz);
-    //     myAtomicAdd(&d_virial[3 * virial_pitch + idx], viriali_yy);
-    //     myAtomicAdd(&d_virial[4 * virial_pitch + idx], viriali_yz);
-    //     myAtomicAdd(&d_virial[5 * virial_pitch + idx], viriali_zz);
-    //     }
-    
     }
 
 template<typename T>
@@ -671,24 +427,9 @@ void get_max_block_size(T func,
     kernel_shared_bytes = (unsigned int)(attr.sharedSizeBytes);
     }
 
-//! Valency compute kernel launcher
-/*!
- * \tparam evaluator Evaluator class
- * \tparam use_gmem_nlist When non-zero, the neighbor list is read out of global memory. When zero,
- * textures or __ldg is used depending on architecture. \tparam compute_virial When non-zero, the
- * virial tensor is computed. When zero, the virial tensor is not computed. \tparam tpp Number of
- * threads to use per particle, must be power of 2 and smaller than warp size
- *
- * Partial function template specialization is not allowed in C++, so instead we have to wrap this
- * with a struct that we are allowed to partially specialize.
- */
 template<class evaluator, unsigned int compute_virial, int tpp> struct ValencyComputeKernel
     {
-    //! Launcher for the valency valency kernel
-    /*!
-     * \param pair_args Other arguments to pass onto the kernel
-     * \param d_params Parameters for the potential, stored per type pair
-     */
+
     static void launch(const valency_args_t& pair_args,
                        const typename evaluator::param_type* d_params)
         {
@@ -702,7 +443,6 @@ template<class evaluator, unsigned int compute_virial, int tpp> struct ValencyCo
                                kernel_shared_bytes);
             int run_block_size = min(pair_args.block_size, max_block_size);
 
-            // size shared bytes
             Index2D typpair_idx(pair_args.ntypes);
             size_t shared_bytes = (sizeof(Scalar) + sizeof(typename evaluator::param_type))
                                       * typpair_idx.getNumElements()
@@ -723,23 +463,15 @@ template<class evaluator, unsigned int compute_virial, int tpp> struct ValencyCo
                                          "memory per block.");
                 }
 
-            // zero the forces.  Note that d_phi_ab_arr has stride (ntypes+1)
-            // per particle (the extra last column holds the global density).
             hipMemset(pair_args.d_force, 0, sizeof(Scalar4) * (pair_args.N + pair_args.Nghosts));
             hipMemset(pair_args.d_virial, 0, sizeof(Scalar) * pair_args.virial_pitch * 6);
             hipMemset(pair_args.d_phi_ab_arr, 0,
                       sizeof(Scalar) * (pair_args.ntypes + 1)
                           * (pair_args.N + pair_args.Nghosts));
 
-            // setup the grid to run the kernel
             dim3 grid(pair_args.N / (run_block_size / pair_args.tpp) + 1, 1, 1);
             dim3 threads(run_block_size, 1, 1);
 
-            // shared bytes for the density kernel: only s_params + s_rcutsq
-            // (it does NOT use s_phi_ab), so it needs less than the force
-            // kernel.  Reuse `shared_bytes` for safety (over-allocation is OK).
-            //
-            // ---- Kernel A: fill per-type density AND global-density column ----
             hipLaunchKernelGGL((gpu_compute_density_kernel<evaluator, tpp>),
                                dim3(grid),
                                dim3(threads),
@@ -756,10 +488,6 @@ template<class evaluator, unsigned int compute_virial, int tpp> struct ValencyCo
                                pair_args.d_rcutsq,
                                pair_args.ntypes);
 
-            // ---- Kernel B: force computation (reads precomputed density) ----
-            // The kernel launch boundary acts as the implicit grid-wide barrier
-            // between Kernel A and Kernel B — guarantees every particle's
-            // per-type slots AND global column are settled before any read.
             hipLaunchKernelGGL((gpu_compute_valency_forces_kernel<evaluator, compute_virial, tpp>),
                                dim3(grid),
                                dim3(threads),
@@ -778,33 +506,26 @@ template<class evaluator, unsigned int compute_virial, int tpp> struct ValencyCo
                                d_params,
                                pair_args.d_rcutsq,
                                pair_args.ntypes);
-            // cudaDeviceSynchronize();  // Force kernel execution now
+
             }
         else
             {
             ValencyComputeKernel<evaluator, compute_virial, tpp / 2>::launch(pair_args, d_params);
-            // cudaDeviceSynchronize();  // Force kernel execution now
+
             }
         }
     };
 
-//! Template specialization to do nothing for the tpp = 0 case
 template<class evaluator, unsigned int compute_virial>
 struct ValencyComputeKernel<evaluator, compute_virial, 0>
     {
     static void launch(const valency_args_t& pair_args,
                        const typename evaluator::param_type* d_params)
         {
-        // do nothing
+
         }
     };
 
-//! Kernel driver that computes the three-body forces
-/*! \param pair_args Other arguments to pass onto the kernel
-    \param d_params Parameters for the potential, stored per type pair
-
-    This is just a driver function for gpu_compute_valency_forces_kernel(), see it for details.
-*/
 template<class evaluator>
 __attribute__((visibility("default"))) hipError_t
 gpu_compute_valency_forces(const valency_args_t& pair_args,
@@ -814,7 +535,6 @@ gpu_compute_valency_forces(const valency_args_t& pair_args,
     assert(pair_args.d_rcutsq);
     assert(pair_args.ntypes > 0);
 
-    // compute the new forces
     if (!pair_args.compute_virial)
         {
         ValencyComputeKernel<evaluator, 0, gpu_valency_max_tpp>::launch(pair_args, d_params);
@@ -832,8 +552,8 @@ gpu_compute_valency_forces(const valency_args_t& pair_args,
                            const typename evaluator::param_type* d_params);
 #endif
 
-    } // end namespace kernel
-    } // end namespace md
-    } // end namespace hoomd
+    }
+    }
+    }
 
-#endif // __POTENTIAL_VALENCY_GPU_CUH__
+#endif
