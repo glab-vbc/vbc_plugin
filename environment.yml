@@ -1,0 +1,39 @@
+# Conda environment for building and running vbc_plugin.
+#
+# HOOMD-blue is intentionally NOT listed here. The plugin links against a
+# SOURCE build of HOOMD (see the README "Installation" section) — a conda or pip
+# binary is not sufficient. This file provides the build toolchain and the
+# Python packages the examples need; build HOOMD from source INTO this
+# environment, then build the plugin with ./build.sh.
+#
+#   conda env create -f environment.yml
+#   conda activate vbc_plugin
+#
+# The C++ and CUDA compilers are NOT pinned here on purpose. The plugin must be
+# compiled with the SAME compiler HOOMD was built with — mixing them breaks the
+# ABI and the module fails to import. On an HPC system these come from the
+# environment modules, for example:
+#
+#   module load gcc/10.3.0 cuda/12.2.0
+#
+# Versions after "# tested" are the known-good point this was last built against
+# (Python 3.13, HOOMD 4.8.2).
+
+name: vbc_plugin
+
+channels:
+  - conda-forge
+
+dependencies:
+  # --- build toolchain ---
+  - python=3.13
+  - cmake>=3.28        # tested 3.31.5
+  - eigen=3.4          # HOOMD's build expects the Eigen3 CMake package; tested 3.4.0
+  - pybind11>=2.12     # tested 2.13.6 — must match the pybind11 HOOMD was built with
+
+  # --- Python packages used by examples/ ---
+  - numpy>=2.0         # tested 2.2.2
+  - scipy>=1.11        # tested 1.15.1  (examples/utils.py: scipy.spatial.cKDTree)
+  - gsd>=3.0           # tested 3.4.2   (reads and writes HOOMD trajectories)
+  - matplotlib>=3.8    # tested 3.10.0  (diagnostic notebooks)
+  - pip

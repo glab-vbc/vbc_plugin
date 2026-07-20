@@ -6,24 +6,19 @@ adds tests, CI, and linting.
 
 ## Development setup
 
-`vbc_plugin` is a HOOMD-blue plugin: it is built from source against a matching
-HOOMD-blue installation. See the [README](README.md) for the full build
-instructions. In short, with your HOOMD conda environment active and a
-C++/CUDA toolchain loaded:
+`vbc_plugin` is a HOOMD-blue plugin — it is built from source against a matching
+HOOMD-blue installation. See the [README](README.md#installation) for the full
+setup (create the environment from `environment.yml`, then build HOOMD from
+source into it). With that environment active and the same C++/CUDA toolchain
+HOOMD was built with loaded, the helper script does a clean rebuild and checks
+that the module imports.
 
 ```bash
-mkdir build && cd build
-cmake ..
-make
-make install
+./build.sh
 ```
 
-Then check the install:
-
-```python
-import hoomd
-from hoomd.vbc_plugin import vbc_potential
-```
+To build by hand instead, run `cmake .. && make && make install` from a fresh
+`build/` directory.
 
 ## Notebooks — read this before you commit
 

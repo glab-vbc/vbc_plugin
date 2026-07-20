@@ -216,14 +216,30 @@ binding `A` and `C` until it has about four.
 
 ## Installation
 
-First build HOOMD-blue from source following the
-[official instructions](https://github.com/glotzerlab/hoomd-blue/blob/trunk-patch/BUILDING.rst)
-(add `-DENABLE_GPU=on` if you want GPU support). Then build the plugin against that
-installation.
+Clone the repository and create the environment. `environment.yml` provides the
+build toolchain (CMake, Eigen, pybind11) and the Python packages the examples
+need — HOOMD-blue itself is built from source into the environment.
 
 ```bash
 git clone https://github.com/glab-vbc/vbc_plugin.git
 cd vbc_plugin
+conda env create -f environment.yml
+conda activate vbc_plugin
+```
+
+Build HOOMD-blue from source into that environment following the
+[official instructions](https://github.com/glotzerlab/hoomd-blue/blob/trunk-patch/BUILDING.rst)
+(add `-DENABLE_GPU=on` for GPU support), using the same C++/CUDA toolchain you
+will use for the plugin. Then build the plugin — the helper script does a clean
+rebuild and a smoke-import test.
+
+```bash
+./build.sh
+```
+
+Or build by hand.
+
+```bash
 mkdir build && cd build
 cmake ..
 make
