@@ -4,7 +4,7 @@
 # SOURCE build of HOOMD (see the README "Installation" section) — a conda or pip
 # binary is not sufficient. This file provides the build toolchain and the
 # Python packages the examples need; build HOOMD from source INTO this
-# environment, then build the plugin with ./build.sh.
+# environment, then build the plugin with CMake (see docs/building.md).
 #
 #   conda env create -f environment.yml
 #   conda activate vbc_plugin

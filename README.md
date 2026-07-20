@@ -216,35 +216,26 @@ binding `A` and `C` until it has about four.
 
 ## Installation
 
-Clone the repository and create the environment. `environment.yml` provides the
-build toolchain (CMake, Eigen, pybind11) and the Python packages the examples
-need — HOOMD-blue itself is built from source into the environment.
+The plugin builds with CMake against a **source build of HOOMD-blue >= 4.8.0**
+(tested 4.8.2) installed into your environment, using the same pybind11 and
+C++/CUDA toolchain. It links against HOOMD's CMake package, discovered
+automatically when the environment is active, so it is tied only to a conforming
+HOOMD, not to any particular build.
 
 ```bash
 git clone https://github.com/glab-vbc/vbc_plugin.git
 cd vbc_plugin
 conda env create -f environment.yml
 conda activate vbc_plugin
+# build HOOMD-blue from source into this environment (see docs/building.md)
+cmake --preset default
+cmake --build --preset default
+cmake --install build
 ```
 
-Build HOOMD-blue from source into that environment following the
-[official instructions](https://github.com/glotzerlab/hoomd-blue/blob/trunk-patch/BUILDING.rst)
-(add `-DENABLE_GPU=on` for GPU support), using the same C++/CUDA toolchain you
-will use for the plugin. Then build the plugin — the helper script does a clean
-rebuild and a smoke-import test.
-
-```bash
-./build.sh
-```
-
-Or build by hand.
-
-```bash
-mkdir build && cd build
-cmake ..
-make
-make install
-```
+The preset finds HOOMD via `CONDA_PREFIX` and installs the module next to HOOMD.
+The no-preset commands, GPU notes, and troubleshooting are in
+[`docs/building.md`](docs/building.md).
 
 Check that it imports.
 
@@ -253,11 +244,6 @@ import hoomd
 from hoomd.vbc_plugin import vbc_potential
 print(vbc_potential.VBC)
 ```
-
-> [!NOTE]
-> If CMake cannot find Eigen3, install it from conda-forge
-> (`conda install -c conda-forge eigen`), which also provides the CMake package files
-> HOOMD's build expects.
 
 ## Quickstart
 

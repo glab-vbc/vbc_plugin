@@ -7,18 +7,16 @@ adds tests, CI, and linting.
 ## Development setup
 
 `vbc_plugin` is a HOOMD-blue plugin — it is built from source against a matching
-HOOMD-blue installation. See the [README](README.md#installation) for the full
-setup (create the environment from `environment.yml`, then build HOOMD from
-source into it). With that environment active and the same C++/CUDA toolchain
-HOOMD was built with loaded, the helper script does a clean rebuild and checks
-that the module imports.
+HOOMD-blue installation. See [`docs/building.md`](docs/building.md) for the full
+setup (create the environment, build HOOMD from source, then build the plugin).
+In short, with that environment active and the matching C++/CUDA toolchain
+loaded, configure and build with the bundled preset.
 
 ```bash
-./build.sh
+cmake --preset default
+cmake --build --preset default
+cmake --install build
 ```
-
-To build by hand instead, run `cmake .. && make && make install` from a fresh
-`build/` directory.
 
 ## Notebooks — read this before you commit
 
@@ -30,7 +28,7 @@ committed. Stripping is enforced by an
 `.gitattributes`.
 
 The filter's command lives in your **local** git config (not in the repo), so
-after cloning you must install it once:
+after cloning you must install it once.
 
 ```bash
 pip install nbstripout

@@ -1,4 +1,5 @@
-cmake_minimum_required(VERSION 3.9 FATAL_ERROR)
+# mirrors HOOMD-blue's own requirement (hoomd-blue/CMakeLists.txt)
+cmake_minimum_required(VERSION 3.15...3.27)
 
 # name of the plugin
 project(vbc_plugin LANGUAGES C CXX)
