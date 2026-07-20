@@ -216,26 +216,25 @@ binding `A` and `C` until it has about four.
 
 ## Installation
 
-The plugin builds with CMake against a **source build of HOOMD-blue >= 4.8.0**
-(tested 4.8.2) installed into your environment, using the same pybind11 and
-C++/CUDA toolchain. It links against HOOMD's CMake package, discovered
-automatically when the environment is active, so it is tied only to a conforming
-HOOMD, not to any particular build.
+`vbc_plugin` builds against an existing **HOOMD-blue >= 4.8.0** install (tested
+4.8.2), compiled with the C++/CUDA toolchain you run on. Building HOOMD is out of
+scope here — see [`docs/building.md`](docs/building.md) for the requirement and
+the [official HOOMD build guide](https://github.com/glotzerlab/hoomd-blue/blob/trunk-patch/BUILDING.rst)
+for building it.
+
+With the HOOMD environment active and the plugin's build packages present
+(`environment.yml` lists them), build and install the plugin.
 
 ```bash
 git clone https://github.com/glab-vbc/vbc_plugin.git
 cd vbc_plugin
-conda env create -f environment.yml
-conda activate vbc_plugin
-# build HOOMD-blue from source into this environment (see docs/building.md)
 cmake --preset default
 cmake --build --preset default
 cmake --install build
 ```
 
 The preset finds HOOMD via `CONDA_PREFIX` and installs the module next to HOOMD.
-The no-preset commands, GPU notes, and troubleshooting are in
-[`docs/building.md`](docs/building.md).
+Full setup and troubleshooting are in [`docs/building.md`](docs/building.md).
 
 Check that it imports.
 

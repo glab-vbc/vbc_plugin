@@ -1,10 +1,10 @@
 # Conda environment for building and running vbc_plugin.
 #
-# HOOMD-blue is intentionally NOT listed here. The plugin links against a
-# SOURCE build of HOOMD (see the README "Installation" section) — a conda or pip
-# binary is not sufficient. This file provides the build toolchain and the
-# Python packages the examples need; build HOOMD from source INTO this
-# environment, then build the plugin with CMake (see docs/building.md).
+# HOOMD-blue is a PREREQUISITE and is intentionally NOT listed here. You provide
+# a HOOMD >= 4.8 install built with the C++/CUDA toolchain you run on (see
+# docs/building.md). This file pins the plugin's build tools (cmake, eigen,
+# pybind11) and the example packages. Add them to the environment that holds your
+# HOOMD build, or create this environment from the file and build HOOMD into it.
 #
 #   conda env create -f environment.yml
 #   conda activate vbc_plugin
