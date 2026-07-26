@@ -18,3 +18,7 @@ examples/polymer_momentum.csv
 examples/_figs
 *.bak*
 slurm-*.out
+
+# local-only developer notes, not part of the public repo
+docs/container.md
+src/CPP_ARCHITECTURE.md
