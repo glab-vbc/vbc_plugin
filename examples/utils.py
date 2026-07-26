@@ -1,4 +1,9 @@
-"""Analysis functions for the VBC diagnostics notebooks: read GSD frames, and compute per-frame average KE per particle and centre-of-mass momentum, and  the type-by-type contact-count matrix in mean / 0.9-quantile / 0.99-quantile versions (each computed per frame, then averaged over frames)."""
+"""
+Analysis functions for the VBC diagnostics notebooks: 
+read GSD frames and compute per-frame average KE per particle and centre-of-mass momentum, 
+and the type-by-type contact-count matrix in mean / 0.9-quantile / 0.99-quantile versions
+"""
+
 import numpy as np
 import gsd.hoomd
 from scipy.spatial import cKDTree
