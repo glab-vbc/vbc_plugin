@@ -12,6 +12,36 @@ Each particle has a soft repulsive core and a short-range attractive well, plus 
 **cap on the number of neighbours it can bind via short-range attraction** — its *valency*. Once a
 particle has saturated its valency, no extra neighbours can be added to the attractive well without increasing the total potential energy.
 
+## Installation
+
+`vbc_plugin` is a compiled component that builds against an existing
+**HOOMD-blue >= 4.8.0** install (tested 4.8.2), compiled with the C++/CUDA
+toolchain you run on. Building HOOMD is out of scope here — see
+[`docs/building.md`](docs/building.md) and the
+[official HOOMD build guide](https://github.com/glotzerlab/hoomd-blue/blob/trunk-patch/BUILDING.rst).
+
+With the HOOMD environment active and the plugin's build packages present
+(`environment.yml` lists them — CMake, Eigen, pybind11), build and install.
+
+```bash
+git clone https://github.com/glab-vbc/vbc_plugin.git
+cd vbc_plugin
+cmake --preset default
+cmake --build --preset default
+cmake --install build
+```
+
+The preset finds HOOMD via `CONDA_PREFIX` and installs the module next to HOOMD.
+Check that it imports.
+
+```python
+import hoomd
+from hoomd.vbc_plugin import vbc_potential
+print(vbc_potential.VBC)
+```
+
+Full setup and troubleshooting are in [`docs/building.md`](docs/building.md).
+
 ## Valency cap
 
 The cap can act on the **total** neighbour count (`use_global_dens=1`) or **per neighbour type** (`use_global_dens=0`), and the two types in a pair can carry different
@@ -203,46 +233,6 @@ vbc.params[('B', 'B')] = dict(base, E_a=-4.0, ncut_ij=2, ncut_ji=2, use_global_d
 `B`'s cap is 2 for its own kind but 4 for everyone else, so — reading its single *total*
 density — a `B` stops binding other `B` once it has about two neighbours, yet keeps
 binding `A` and `C` until it has about four.
-
-## Requirements
-
-- [HOOMD-blue](https://github.com/glotzerlab/hoomd-blue) **built from source** (tested
-  against v4.8.2). A plugin links against HOOMD's own CMake package, so a `pip`/`conda`
-  binary install of HOOMD is not sufficient — you need the source build.
-- A C++17 compiler and CMake. For GPU support, a CUDA toolchain and HOOMD built with
-  `-DENABLE_GPU=on`.
-- Python packages for the examples are `numpy`, `gsd`, and `scipy`, plus `matplotlib` for the
-  notebooks.
-
-## Installation
-
-`vbc_plugin` builds against an existing **HOOMD-blue >= 4.8.0** install (tested
-4.8.2), compiled with the C++/CUDA toolchain you run on. Building HOOMD is out of
-scope here — see [`docs/building.md`](docs/building.md) for the requirement and
-the [official HOOMD build guide](https://github.com/glotzerlab/hoomd-blue/blob/trunk-patch/BUILDING.rst)
-for building it.
-
-With the HOOMD environment active and the plugin's build packages present
-(`environment.yml` lists them), build and install the plugin.
-
-```bash
-git clone https://github.com/glab-vbc/vbc_plugin.git
-cd vbc_plugin
-cmake --preset default
-cmake --build --preset default
-cmake --install build
-```
-
-The preset finds HOOMD via `CONDA_PREFIX` and installs the module next to HOOMD.
-Full setup and troubleshooting are in [`docs/building.md`](docs/building.md).
-
-Check that it imports.
-
-```python
-import hoomd
-from hoomd.vbc_plugin import vbc_potential
-print(vbc_potential.VBC)
-```
 
 ## Quickstart
 
