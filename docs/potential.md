@@ -18,19 +18,19 @@ $$V(r)=V_r(r)+V_a(r).$$
 
 The repulsive core is non-negative and supported on $(0,r_r)$,
 
-$$V_r(r)=E_r\left[1-\left(\frac{r}{r_r}\right)^{2}\right]^{2}\quad(r<r_r),\qquad V_r(r)=0\quad(r\ge r_r).$$
+$$V_r(r)=E_r\left[1-\left(\frac{r}{r_r}\right)^{2}\right]^{2}\quad(r\lt r_r),\qquad V_r(r)=0\quad(r\ge r_r).$$
 
 a soft wall of height $V_r(0)=E_r$ that vanishes smoothly at $r=r_r$. The attractive
 well is non-positive and supported on $(r_r,r_a)$,
 
-$$V_a(r)=E_a\left[1-\left(\frac{r-r_e}{(r_a-r_r)/2}\right)^{2}\right]^{2}\quad(r_r<r<r_a),\qquad V_a(r)=0\quad(\text{otherwise}),\qquad r_e=\frac{r_r+r_a}{2}.$$
+$$V_a(r)=E_a\left[1-\left(\frac{r-r_e}{(r_a-r_r)/2}\right)^{2}\right]^{2}\quad(r_r\lt r\lt r_a),\qquad V_a(r)=0\quad(\text{otherwise}),\qquad r_e=\frac{r_r+r_a}{2}.$$
 
 with its minimum $V_a(r_e)=E_a$ at the well centre $r_e$. The symbols are as follows.
 
-- $E_r>0$, repulsion wall, the height of the soft core (standard value $20\ k_BT$).
+- $E_r\gt 0$, repulsion wall, the height of the soft core (standard value $20\ k_BT$).
 - $r_r$, repulsion range, where the core ends and the well begins (standard $1$, the
   unit of length).
-- $E_a$, attraction depth. A well requires $E_a<0$, and $|E_a|$ is the tunable binding
+- $E_a$, attraction depth. A well requires $E_a\lt 0$, and $|E_a|$ is the tunable binding
   strength.
 - $r_a$, attraction range, the outer edge of the well (standard $1.5$).
 
@@ -41,7 +41,7 @@ Energies are in $k_BT$ and lengths in units of $r_r=1$.
 A single twice-differentiable step is reused throughout. It decreases smoothly from $1$ to
 $0$ as its argument crosses from $x_1$ to $x_2$.
 
-$$\omega(x;x_1,x_2)=1\quad(x\le x_1),\qquad \left[1-\left(\frac{x-x_1}{x_2-x_1}\right)^{2}\right]^{2}\quad(x_1<x<x_2),\qquad 0\quad(x\ge x_2).$$
+$$\omega(x;x_1,x_2)=1\quad(x\le x_1),\qquad \left[1-\left(\frac{x-x_1}{x_2-x_1}\right)^{2}\right]^{2}\quad(x_1\lt x\lt x_2),\qquad 0\quad(x\ge x_2).$$
 
 It appears twice with different arguments, once to count neighbours and once to cap the count of neighbours.
 
@@ -53,7 +53,7 @@ neighbour type $\beta$,
 $$n_i^{\beta}=\sum_{j\ne i} w_{ij}\delta_{\tau_j}^{\beta},\qquad w_{ij}=\omega\left(r_{ij};r_\ell,r_h\right).$$
 
 - $w_{ij}$, the density weight of neighbour $j$, equal to $1$ when $j$ is closer than $r_\ell$,
-  a smooth fraction in the shell $r_\ell<r_{ij}<r_h$, and $0$ beyond $r_h$.
+  a smooth fraction in the shell $r_\ell\lt r_{ij}\lt r_h$, and $0$ beyond $r_h$.
 - $\tau_j$, the type of particle $j$. The Kronecker symbol $\delta_{\tau_j}^{\beta}$
   keeps only type-$\beta$ neighbours, so $n_i^{\beta}$ is the smoothed number of
   type-$\beta$ neighbours of $i$.
@@ -97,7 +97,7 @@ have room under their caps.
 The correction leaves the repulsion untouched and scales only the attractive well by the
 gate.
 
-$$\hat V_{ij}=V_r(r_{ij})+\Psi_{ij}V_a(r_{ij}),\qquad \mathcal V=\sum_{i<j}\hat V_{ij}.$$
+$$\hat V_{ij}=V_r(r_{ij})+\Psi_{ij}V_a(r_{ij}),\qquad \mathcal V=\sum_{i\lt j}\hat V_{ij}.$$
 
 Since $\Psi_{ij}\in[0,1]$ the attraction can only be weakened. A
 saturated particle gains no further energy by acquiring an extra attractive neighbour. In contrast, adding neighbours beyond the cap increases the potential energy.
