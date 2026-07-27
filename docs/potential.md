@@ -31,7 +31,7 @@ V_a(r)=\begin{cases}E_a\left[1-\left(\dfrac{r-r_e}{(r_a-r_r)/2}\right)^{2}\right
 
 with its minimum $V_a(r_e)=E_a$ at the well centre $r_e$. The symbols are as follows.
 
-- $E_r>0$, repulsion wall, the height of the soft core (standard value $20\,k_BT$).
+- $E_r>0$, repulsion wall, the height of the soft core (standard value $20\ k_BT$).
 - $r_r$, repulsion range, where the core ends and the well begins (standard $1$, the
   unit of length).
 - $E_a$, attraction depth. A well requires $E_a<0$, and $|E_a|$ is the tunable binding
@@ -56,14 +56,14 @@ It appears twice with different arguments, once to count neighbours and once to 
 The local density of particle $i$ is a smooth neighbour count. Resolved by
 neighbour type $\beta$,
 
-$$n_i^{\beta}=\sum_{j\ne i} w_{ij}\,\delta_{\tau_j}^{\beta},\qquad w_{ij}=\omega\!\left(r_{ij};\,r_\ell,\,r_h\right).$$
+$$n_i^{\beta}=\sum_{j\ne i} w_{ij}\delta_{\tau_j}^{\beta},\qquad w_{ij}=\omega\left(r_{ij};r_\ell,r_h\right).$$
 
 - $w_{ij}$, the density weight of neighbour $j$, equal to $1$ when $j$ is closer than $r_\ell$,
   a smooth fraction in the shell $r_\ell<r_{ij}<r_h$, and $0$ beyond $r_h$.
 - $\tau_j$, the type of particle $j$. The Kronecker symbol $\delta_{\tau_j}^{\beta}$
   keeps only type-$\beta$ neighbours, so $n_i^{\beta}$ is the smoothed number of
   type-$\beta$ neighbours of $i$.
-- $r_\ell,\,r_h$, the lower and upper density-shell radii. These are independent
+- $r_\ell,\ r_h$, the lower and upper density-shell radii. These are independent
   parameters, not tied to the attraction range $r_a$, with standard values $r_\ell=1.5$ and $r_h=2.0$.
 
 The global density is the sum over types, the total neighbour count
@@ -86,11 +86,11 @@ number of attractive neighbours a particle is allowed.
 
 An $i$–$j$ attraction is gated by the product of both particles' gates,
 
-$$\Psi_{ij}=g\!\left(n_i^{\tau_j};\,\nu^{\tau_i\tau_j}\right)\,g\!\left(n_j^{\tau_i};\,\nu^{\tau_j\tau_i}\right)\in[0,1].$$
+$$\Psi_{ij}=g\left(n_i^{\tau_j};\nu^{\tau_i\tau_j}\right)g\left(n_j^{\tau_i};\nu^{\tau_j\tau_i}\right)\in[0,1].$$
 
-- $g\!\left(n_i^{\tau_j};\nu^{\tau_i\tau_j}\right)$ gates $i$ on its own count of the
+- $g\left(n_i^{\tau_j};\nu^{\tau_i\tau_j}\right)$ gates $i$ on its own count of the
   partner's type, against $i$'s cap $\nu^{\tau_i\tau_j}$.
-- $g\!\left(n_j^{\tau_i};\nu^{\tau_j\tau_i}\right)$ gates $j$ likewise, against the
+- $g\left(n_j^{\tau_i};\nu^{\tau_j\tau_i}\right)$ gates $j$ likewise, against the
   cap $\nu^{\tau_j\tau_i}$.
 - The caps may be asymmetric, $\nu^{\tau_i\tau_j}\neq\nu^{\tau_j\tau_i}$, for example a
   receptor that binds many ligands while each ligand binds one receptor.
@@ -103,7 +103,7 @@ have room under their caps.
 The correction leaves the repulsion untouched and scales only the attractive well by the
 gate.
 
-$$\hat V_{ij}=V_r(r_{ij})+\Psi_{ij}\,V_a(r_{ij}),\qquad \mathcal V=\sum_{i<j}\hat V_{ij}.$$
+$$\hat V_{ij}=V_r(r_{ij})+\Psi_{ij}V_a(r_{ij}),\qquad \mathcal V=\sum_{i<j}\hat V_{ij}.$$
 
 Since $\Psi_{ij}\in[0,1]$ the attraction can only be weakened. A
 saturated particle gains no further energy by acquiring an extra attractive neighbour. In contrast, adding neighbours beyond the cap increases the potential energy.
@@ -113,7 +113,7 @@ saturated particle gains no further energy by acquiring an extra attractive neig
 Replacing the type-resolved counts by the one total count $n_i$ gives the
 global-density variant.
 
-$$n_i=\sum_{j\ne i} w_{ij},\qquad \Psi_{ij}=g\!\left(n_i;\,\nu^{\tau_i\tau_j}\right)\,g\!\left(n_j;\,\nu^{\tau_j\tau_i}\right).$$
+$$n_i=\sum_{j\ne i} w_{ij},\qquad \Psi_{ij}=g\left(n_i;\nu^{\tau_i\tau_j}\right)g\left(n_j;\nu^{\tau_j\tau_i}\right).$$
 
 Each gate now reads the particle's total neighbour count,
 still compared against the per-couple cap $\nu^{\tau_i\tau_j}$, which may remain type-pair
@@ -125,7 +125,7 @@ This is the `use_global_dens=1` mode. `use_global_dens=0` selects the per-type f
 
 | ESI symbol           | `params` key         | meaning                                   | standard value |
 | -------------------- | -------------------- | ----------------------------------------- | -------------- |
-| $E_r$                | `E_r`                | repulsion depth                           | $20\,k_BT$     |
+| $E_r$                | `E_r`                | repulsion depth                           | $20\ k_BT$     |
 | $r_r$                | `rep_rcut`           | repulsion range                           | $1$            |
 | $E_a$                | `E_a`                | attraction depth                          | tunable        |
 | $r_a$                | `attr_rcut`          | attraction range                          | $1.5$          |
