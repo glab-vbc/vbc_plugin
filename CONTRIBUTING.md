@@ -43,6 +43,13 @@ To regenerate a notebook's figures, follow the "How to generate the GSD
 data" cell at the top of each notebook (it runs `sweep.py`), then run all
 cells.
 
+## Documentation maths
+
+The piecewise definitions in [`docs/potential.md`](docs/potential.md) are written
+as `math` fenced code blocks, which GitHub typesets directly. VSCode's built-in
+Markdown preview shows them as plain text, so to render them locally install a
+Markdown maths extension such as Markdown Preview Enhanced or Markdown+Math.
+
 ## Commits
 
 Keep commits small and focused, one logical change per commit. Write a
