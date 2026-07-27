@@ -19,14 +19,14 @@ $$V(r)=V_r(r)+V_a(r).$$
 The repulsive core is non-negative and supported on $(0,r_r)$,
 
 ```math
-V_r(r)=\begin{cases}E_r\left[1-\left(\dfrac{r}{r_r}\right)^{2}\right]^{2}, & r<r_r,\\ 0, & r\ge r_r,\end{cases}
+V_r(r)=\left\{\begin{array}{ll}E_r\left[1-\left(\frac{r}{r_r}\right)^{2}\right]^{2}, & r<r_r,\\ 0, & r\ge r_r.\end{array}\right.
 ```
 
 a soft wall of height $V_r(0)=E_r$ that vanishes smoothly at $r=r_r$. The attractive
 well is non-positive and supported on $(r_r,r_a)$,
 
 ```math
-V_a(r)=\begin{cases}E_a\left[1-\left(\dfrac{r-r_e}{(r_a-r_r)/2}\right)^{2}\right]^{2}, & r_r<r<r_a,\\ 0, & \text{otherwise},\end{cases}\qquad r_e=\frac{r_r+r_a}{2},
+V_a(r)=\left\{\begin{array}{ll}E_a\left[1-\left(\frac{r-r_e}{(r_a-r_r)/2}\right)^{2}\right]^{2}, & r_r<r<r_a,\\ 0, & \text{otherwise}.\end{array}\right.\qquad r_e=\frac{r_r+r_a}{2},
 ```
 
 with its minimum $V_a(r_e)=E_a$ at the well centre $r_e$. The symbols are as follows.
@@ -46,7 +46,7 @@ A single twice-differentiable step is reused throughout. It decreases smoothly f
 $0$ as its argument crosses from $x_1$ to $x_2$.
 
 ```math
-\omega(x;x_1,x_2)=\begin{cases}1, & x\le x_1,\\ \left[1-\left(\dfrac{x-x_1}{x_2-x_1}\right)^{2}\right]^{2}, & x_1<x<x_2,\\ 0, & x\ge x_2.\end{cases}
+\omega(x;x_1,x_2)=\left\{\begin{array}{ll}1, & x\le x_1,\\ \left[1-\left(\frac{x-x_1}{x_2-x_1}\right)^{2}\right]^{2}, & x_1<x<x_2,\\ 0, & x\ge x_2.\end{array}\right.
 ```
 
 It appears twice with different arguments, once to count neighbours and once to cap the count of neighbours.
