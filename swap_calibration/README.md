@@ -1,9 +1,8 @@
 # Swap calibration
 
-Calibrate the VBC gate for low-barrier neighbour exchange (bond swaps). For a chosen
+Calibrate the VBC gate for low-barrier neighbour exchange (swaps). For a chosen
 base potential the search scans the gate geometry `(r_low, r_high, n_target)` and reports
-the geometry with the lowest energy barrier to a neighbour exchange across valencies. It
-needs only numpy, tqdm and matplotlib.
+the geometry with the lowest energy barrier to a neighbour exchange across valencies.
 
 ## Run
 
@@ -16,13 +15,33 @@ python search.py \
 
 `--r_rep` and `--r_att` are the base radii, and `--r_low`, `--r_high`, `--n_target` each
 take `start stop count` and set the gate grid. Run `python search.py -h` for all options.
-Results land in `--out_dir`, ranked in `top{k}_barrier.csv` (lowest worst-case barrier)
-and `top{k}_spur.csv` (shallowest off-channel minimum). Open `visualize.ipynb` to draw
+Results land in `--out_dir`, ranked in `top{k}_barrier.csv` -lowest worst-case barrier,
+and `top{k}_spur.csv` - shallowest off-channel minimum. Open `visualize.ipynb` to draw
 the channel for one gate and read a result back.
 
 The barrier is the lowest level at which the two swap minima join the same connected
 component of the sublevel set, found by union-find flooding. `vbc_landscape.py` holds the
 potential, the landscape and the barrier.
+
+## Layers and the optional stability check
+
+`visualize.ipynb` shows the off-channel (spurious) analysis in four layers of increasing
+fidelity. Naive (the original bare-pair depth, overstated), deterministic (the corrected
+total-cluster-energy depth), random (the corrected depth averaged over scattered neighbour
+placements), and a local Hessian stability layer (the curvature of the total energy at
+sampled arrangements). The first three need only numpy and live in `vbc_landscape.py`.
+
+The fourth layer (`vbc_landscape_jax.py`, `stability_jax.py`) diagonalises the energy
+Hessian with JAX, which is not pinned in `environment.yml` because it is heavy and
+CUDA-wheel specific. Install it into your analysis env only.
+
+```bash
+pip install "jax[cpu]"        # login node, fine for this grid
+pip install "jax[cuda12]"     # on a GPU node matching the loaded CUDA
+```
+
+`vbc_landscape.py` and `search.py` never import JAX. This is a per-configuration Hessian
+check (local convexity), not the paper's macroscopic H-stability.
 
 ## References
 

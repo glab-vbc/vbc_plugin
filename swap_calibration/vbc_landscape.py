@@ -86,10 +86,44 @@ def swap_landscape(valency: int, r_grid: np.ndarray,
     return U
 
 
+def naive_spurious_depth(valency: int, r_low: float, r_high: float, n_target: float,
+                         *, r_rep: float, r_att: float, E_r: float, E_a: float,
+                         n_r: int = 501) -> float:
+    """Layer 1. The original, pre-correction bare-pair spurious depth.
+
+    A probe neighbour approaches a central particle whose shell of ``valency`` partners is
+    frozen, but the existing bonds are NOT re-counted energetically (no back-reaction) and
+    the reference is the unbound state (baseline zero). This overstates the trap and is
+    kept only for comparison with the corrected layers, see ``sporadic_min_depth``.
+    """
+    r_arr = np.linspace(r_rep, r_att, n_r)
+    ncut = valency + (n_target - 1.0)
+    r_star = 0.5 * (r_rep + r_att)
+
+    rho_rs = float(density_phi(np.array([r_star]), r_low, r_high)[0])
+    rho_r = density_phi(r_arr, r_low, r_high)
+
+    phi_C = valency * rho_rs + rho_r
+    phi_N = rho_r
+    W_C = omega_gate(phi_C, ncut)
+    W_N = omega_gate(phi_N, ncut)
+
+    # bare C-N pair well only, no back-reaction on the existing bonds, baseline zero
+    U = V_rep(r_arr, r_rep, E_r) + W_C * W_N * V_att(r_arr, r_rep, r_att, E_a)
+
+    U_int = U[1:-1]
+    if len(U_int) == 0:
+        return 0.0
+    i = int(np.argmin(U_int)) + 1
+    if U[i] < U[i - 1] and U[i] < U[i + 1] and U[i] < 0.0:
+        return -float(U[i]) / abs(E_a)
+    return 0.0
+
+
 def sporadic_min_depth(valency: int, r_low: float, r_high: float, n_target: float,
                        *, r_rep: float, r_att: float, E_r: float, E_a: float,
                        n_r: int = 501) -> float:
-    """Depth of the off-channel (spurious) minimum, as a fraction of ``|E_a|``.
+    """Depth of the off-channel minimum, as a fraction of ``|E_a|``.
 
     A single particle approaches a central particle whose shell of ``valency``
     partners is already full, so the gate switches the attraction on and then off
