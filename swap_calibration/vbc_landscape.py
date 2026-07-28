@@ -1,37 +1,3 @@
-"""Neighbour-exchange energy landscape and minimax barrier for the VBC gate.
-
-Given a base pair potential (repulsion range ``r_rep``, attraction range
-``r_att``, depths ``E_r`` and ``E_a``) and a gate geometry
-(``r_low``, ``r_high``, ``n_target``), this module builds the neighbour-exchange
-landscape ``U(r_A, r_B)`` for a central particle of valency ``f``, locates the two
-swap minima, and returns the minimax (bottleneck) barrier of the channel joining
-them. Everything is a plain-numpy function of the base radii, so the calibration is
-defined for any ``r_rep`` and ``r_att``.
-
-Landscape
-    A central particle C holds ``f`` bonds. Its ``f-1`` retained partners are frozen
-    on a ring at the well centre ``r_star = (r_rep + r_att) / 2`` and two candidates
-    A, B sit on the axis at ``+r_A`` and ``-r_B``. ``U`` is the sum of C's bonds
-
-        U = V_rep(r_A) + V_rep(r_B)
-            + g(phi_C) [ g(w(r_A)) V_att(r_A) + g(w(r_B)) V_att(r_B)
-                         + (f-1) g(w(r_star)) V_att(r_star) ]
-
-    with counting weight ``w(r) = density_phi(r; r_low, r_high)``, gate
-    ``g(.) = omega_gate(.; ncut)``, central count
-    ``phi_C = (f-1) w(r_star) + w(r_A) + w(r_B)`` and cap
-    ``ncut = f + (n_target - 1) = f - n_delta``, so ``n_delta = 1 - n_target``.
-
-Minimax barrier
-    ``B`` is the lowest level ``c`` at which the two minima first belong to the same
-    connected component of the sublevel set ``{ U <= c }``. It is found by flooding a
-    regular grid, inserting cells in order of increasing ``U`` and merging active
-    eight-neighbours with a union-find structure (Tarjan 1975). The result is the
-    minimum-bottleneck path (Hu 1961). The barrier is reported relative to the deeper
-    minimum as ``B / |E_a|``.
-
-The potential primitives match the installed VBC evaluator.
-"""
 from __future__ import annotations
 
 from typing import Optional, Tuple
@@ -91,9 +57,6 @@ def V_att(r: np.ndarray, r_rep: float, r_att: float, E_a: float) -> np.ndarray:
     return out
 
 
-# ---------------------------------------------------------------------------
-# Exchange landscape U(r_A, r_B)
-# ---------------------------------------------------------------------------
 
 def swap_landscape(valency: int, r_grid: np.ndarray,
                    r_low: float, r_high: float, n_target: float,
@@ -138,6 +101,8 @@ def sporadic_min_depth(valency: int, r_low: float, r_high: float, n_target: floa
     r_star = 0.5 * (r_rep + r_att)
 
     rho_rs = float(density_phi(np.array([r_star]), r_low, r_high)[0])
+    vatt_rs = float(V_att(np.array([r_star]), r_rep, r_att, E_a)[0])
+    W_S = float(omega_gate(np.array([rho_rs]), ncut)[0])
     rho_r = density_phi(r_arr, r_low, r_high)
 
     phi_C = valency * rho_rs + rho_r
@@ -145,20 +110,20 @@ def sporadic_min_depth(valency: int, r_low: float, r_high: float, n_target: floa
     W_C = omega_gate(phi_C, ncut)
     W_N = omega_gate(phi_N, ncut)
 
-    U = V_rep(r_arr, r_rep, E_r) + W_C * W_N * V_att(r_arr, r_rep, r_att, E_a)
+    # total cluster energy: the C-N bond plus the back-reaction on C's valency existing bonds
+    U = (V_rep(r_arr, r_rep, E_r) + W_C * W_N * V_att(r_arr, r_rep, r_att, E_a)
+         + valency * W_C * W_S * vatt_rs)
+    baseline = valency * float(omega_gate(np.array([valency * rho_rs]), ncut)[0]) * W_S * vatt_rs
 
     U_int = U[1:-1]
     if len(U_int) == 0:
         return 0.0
     i = int(np.argmin(U_int)) + 1
-    if U[i] < U[i - 1] and U[i] < U[i + 1]:
-        return max(0.0, -float(U[i])) / abs(E_a)
+    if U[i] < U[i - 1] and U[i] < U[i + 1] and U[i] < baseline:
+        return (baseline - float(U[i])) / abs(E_a)
     return 0.0
 
 
-# ---------------------------------------------------------------------------
-# Union-find minimax (bottleneck) barrier
-# ---------------------------------------------------------------------------
 
 class UnionFind:
     """Disjoint-set with path compression and union by rank (Tarjan 1975)."""
