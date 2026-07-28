@@ -32,7 +32,10 @@ placements), and a local Hessian stability layer (the curvature of the total ene
 sampled arrangements). The first three need only numpy and live in `vbc_landscape.py`.
 
 The fourth layer (`vbc_landscape_jax.py`, `stability_jax.py`) diagonalises the energy
-Hessian with JAX, which is not pinned in `environment.yml` because it is heavy and
+Hessian with JAX over the over-coordinated cluster of `valency + 1` neighbours (the
+saturating shell plus one extra particle). `find_minima` returns the strictly convex
+interior minima, the arrangements where the extra particle stays trapped with all
+`valency + 1` bonds intact. JAX is not pinned in `environment.yml` because it is heavy and
 CUDA-wheel specific. Install it into your analysis env only.
 
 ```bash

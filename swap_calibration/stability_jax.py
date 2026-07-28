@@ -11,16 +11,20 @@ Terminology. This is a LOCAL, per-configuration notion (Hessian positive-definit
 convexity). It is distinct from the paper's macroscopic H-stability (the Fisher-Ruelle
 bound on the total energy via phi_min); do not call this "H-stable".
 
+Particle count. The scenario is OVER-COORDINATION. A central particle already holding its
+``valency`` bonds plus one extra approaching particle, so the DOF are the ``m = valency + 1``
+neighbour radii and the Hessian is ``(valency+1) x (valency+1)``. A spurious trap is a
+stable (convex) configuration in which all ``valency + 1`` neighbours stay bonded.
+
 DOF. Radial distances only. In this energy neighbours interact with C but not with each
 other, so a full-3D Hessian would carry 2m exact zero modes (rotating a neighbour about C
 at fixed radius costs nothing). The radial coordinates are the physically meaningful and
 tractable DOF.
 
-Caveat. A sampled or gridded configuration is generally NOT a stationary point
-(grad E != 0), so ``p_stable`` here measures the fraction of arrangements that sit in a
-locally convex region, not the fraction of relaxed basin minima. ``grad_norm`` is reported
-alongside. A strict relaxed-minimum mode (relax to grad ~ 0, then Hessian) is scaffolded
-via the ``relax`` flag but not yet implemented.
+Two readings. ``stability_random`` and ``stability_grid`` report local convexity at sampled
+or gridded arrangements (a random arrangement is generally NOT stationary, ``grad_norm`` is
+reported alongside). ``find_minima`` is the strict version. it relaxes seeds to the
+interior stationary points (grad E = 0) and classifies each by its Hessian.
 """
 from __future__ import annotations
 
@@ -28,6 +32,7 @@ import itertools
 from typing import NamedTuple
 
 import numpy as np
+from scipy.optimize import minimize
 
 try:
     import jax
@@ -92,17 +97,19 @@ def _reduce(batch, r_all, chunk):
 
 def stability_random(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E_a,
                      n_sample=100_000, seed=0, relax=False, chunk=50_000):
-    """Local Hessian stability over ``n_sample`` uniform neighbour placements in the
-    binding zone ``(r_rep, r_att)``. Returns a ``StabilityResult``."""
+    """Local Hessian stability over ``n_sample`` uniform placements of the ``valency + 1``
+    neighbours (the saturating shell plus one extra particle) in the binding zone
+    ``(r_rep, r_att)``. Returns a ``StabilityResult``."""
     if relax:
         raise NotImplementedError(
-            "relax=True (strict relaxed-basin minima) is a documented stub. "
-            "The current metric is local convexity at the sampled config (relax=False).")
+            "relax=True is superseded by find_minima(), which relaxes seeds to the interior "
+            "stationary minima (grad U = 0) and classifies each by its Hessian.")
+    m = valency + 1
     ncut = valency + (n_target - 1.0)
     batch = _make_batch(r_low, r_high, ncut, r_rep, r_att, E_r, E_a)
     keys = jax.random.split(jax.random.PRNGKey(seed), n_sample)
     r_all = jax.vmap(
-        lambda k: jax.random.uniform(k, (valency,), minval=r_rep, maxval=r_att))(keys)
+        lambda k: jax.random.uniform(k, (m,), minval=r_rep, maxval=r_att))(keys)
     return _reduce(batch, r_all, chunk)
 
 
@@ -116,10 +123,12 @@ def stability_grid(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E_a,
     ``combinations_with_replacement(range(n_grid), m)``, giving ``C(n_grid + m - 1, m)``
     unique configs instead of the ``n_grid ** m`` product, a factor of up to ``m!`` fewer
     (e.g. n_grid=10, m=7 gives C(16,7)=11440 versus 1e7). ``dedup=False`` reproduces the
-    full product and is intended only as a throughput benchmark.
+    full product and is intended only as a throughput benchmark. The DOF are the
+    ``m = valency + 1`` neighbour radii (the over-coordination scenario), so for valency 6
+    the grid is over 7 coordinates.
     """
     ncut = valency + (n_target - 1.0)
-    m = valency
+    m = valency + 1
     r_min = r_rep if r_min is None else r_min
     r_max = r_att if r_max is None else r_max
     pts = np.linspace(r_min, r_max, n_grid)
@@ -138,3 +147,58 @@ def stability_grid(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E_a,
     r_all = pts[idx]
     batch = _make_batch(r_low, r_high, ncut, r_rep, r_att, E_r, E_a)
     return _reduce(batch, r_all, chunk)
+
+
+def find_minima(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E_a,
+                n_grid=21, n_seed=500, seed=0, grad_tol=1e-4, boundary_eps=1e-4,
+                dedup_tol=1e-3, pd_tol=1e-6):
+    """Strictly convex interior minima of the over-coordination cluster energy.
+
+    The cluster is a central particle plus ``m = valency + 1`` neighbours (the saturating
+    shell and one extra particle), all free radial DOF. Seeds (the symmetric state, an
+    ordered one-neighbour-displaced grid through it, and a random interior sample) are
+    relaxed with a bounded quasi-Newton step to grad U = 0, then kept only if the Hessian is
+    strictly positive-definite (``lambda_min > pd_tol``). This deliberately excludes the flat
+    ``U = 0`` plateau of a gate that switches every bond off under over-coordination (density
+    is constant below ``r_low``), which is degenerate, not a trap. Interior points are
+    deduplicated (neighbours are identical, radial tuples compared sorted). Returns a list of
+    ``(r_vec_sorted, U, lambda_min)`` ordered by energy. Each entry is a genuine spurious
+    trap. a strictly stable arrangement in which all ``valency + 1`` neighbours stay bonded.
+    """
+    m = valency + 1
+    ncut = valency + (n_target - 1.0)
+    p = dict(r_low=r_low, r_high=r_high, ncut=ncut, r_rep=r_rep, r_att=r_att, E_r=E_r, E_a=E_a)
+    energy = jax.jit(lambda r: cluster_energy(r, **p))
+    grad = jax.jit(jax.grad(lambda r: cluster_energy(r, **p)))
+    hess = jax.jit(jax.hessian(lambda r: cluster_energy(r, **p)))
+    E_np = lambda r: float(energy(jnp.asarray(r)))
+    G_np = lambda r: np.asarray(grad(jnp.asarray(r)), dtype=float)
+
+    r_star = 0.5 * (r_rep + r_att)
+    seeds = [np.full(m, r_star)]
+    for j in range(m):                          # ordered one-neighbour-displaced grid
+        for v in np.linspace(r_rep, r_att, n_grid):
+            s = np.full(m, r_star)
+            s[j] = v
+            seeds.append(s)
+    rng = np.random.default_rng(seed)
+    seeds += [rng.uniform(r_rep, r_att, m) for _ in range(n_seed)]
+
+    kept = []
+    for x0 in seeds:
+        res = minimize(E_np, x0, jac=G_np, method="L-BFGS-B",
+                       bounds=[(r_rep, r_att)] * m,
+                       options=dict(maxiter=500, ftol=1e-14, gtol=1e-10))
+        x = np.sort(res.x)
+        if np.linalg.norm(G_np(res.x)) > grad_tol:      # not a stationary point
+            continue
+        if x[0] < r_rep + boundary_eps or x[-1] > r_att - boundary_eps:  # on the boundary
+            continue
+        lam = float(np.linalg.eigvalsh(np.asarray(hess(jnp.asarray(x)))).min())
+        if lam <= pd_tol:                                # flat/degenerate, not a trap
+            continue
+        if any(np.linalg.norm(x - y[0]) < dedup_tol for y in kept):      # already found
+            continue
+        kept.append((x, E_np(x), lam))
+    kept.sort(key=lambda t: t[1])
+    return kept
