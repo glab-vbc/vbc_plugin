@@ -202,3 +202,18 @@ def find_minima(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E_a,
         kept.append((x, E_np(x), lam))
     kept.sort(key=lambda t: t[1])
     return kept
+
+
+def optimal_state_energy(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E_a):
+    """Energy of the ideal ``valency``-coordinated state, all neighbours at the well centre.
+
+    For a gate whose cap is at least the valency this is ``valency * E_a`` (``valency`` fully
+    satisfied bonds), the natural reference for the depth of an over-coordinated trap. The
+    trap depth is ``find_minima(...)[0][1] - optimal_state_energy(...)``. negative means the
+    extra particle is net bound (over-coordination lies below the ideal state), positive
+    means a metastable pocket above it.
+    """
+    ncut = valency + (n_target - 1.0)
+    r_star = 0.5 * (r_rep + r_att)
+    return float(cluster_energy(jnp.full(valency, r_star), r_low=r_low, r_high=r_high,
+                                ncut=ncut, r_rep=r_rep, r_att=r_att, E_r=E_r, E_a=E_a))
