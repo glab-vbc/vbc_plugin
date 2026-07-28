@@ -124,6 +124,52 @@ def sporadic_min_depth(valency: int, r_low: float, r_high: float, n_target: floa
     return 0.0
 
 
+def spurious_depth(valency: int, r_low: float, r_high: float, n_target: float,
+                   *, r_rep: float, r_att: float, E_r: float, E_a: float,
+                   key: str = "deterministic", n_sample: int = 100, seed: int = 0,
+                   n_r: int = 501) -> float:
+    """Spurious depth with the passive neighbours placed by ``key``.
+
+    ``key="deterministic"`` puts all ``valency`` passive neighbours at the well centre
+    and returns ``sporadic_min_depth``. ``key="random"`` draws ``valency`` neighbour
+    distances uniformly in the binding zone ``(r_rep, r_att)`` for each of ``n_sample``
+    placements, so each contributes its own weight to ``phi_C`` and its own bond to the
+    back-reaction, and returns the depth averaged over the placements.
+    """
+    if key == "deterministic":
+        return sporadic_min_depth(valency, r_low, r_high, n_target,
+                                  r_rep=r_rep, r_att=r_att, E_r=E_r, E_a=E_a, n_r=n_r)
+    if key != "random":
+        raise ValueError("key must be 'deterministic' or 'random'")
+
+    rng = np.random.default_rng(seed)
+    r_arr = np.linspace(r_rep, r_att, n_r)
+    ncut = valency + (n_target - 1.0)
+    depths = []
+    for _ in range(n_sample):
+        r_spec = rng.uniform(r_rep, r_att, size=valency)
+        w_spec = density_phi(r_spec, r_low, r_high)
+        S = float(np.sum(omega_gate(w_spec, ncut) * V_att(r_spec, r_rep, r_att, E_a)))
+        sum_w = float(w_spec.sum())
+
+        rho_r = density_phi(r_arr, r_low, r_high)
+        W_C = omega_gate(sum_w + rho_r, ncut)
+        W_N = omega_gate(rho_r, ncut)
+        U = V_rep(r_arr, r_rep, E_r) + W_C * W_N * V_att(r_arr, r_rep, r_att, E_a) + W_C * S
+        baseline = float(omega_gate(np.array([sum_w]), ncut)[0]) * S
+
+        U_int = U[1:-1]
+        if len(U_int) == 0:
+            depths.append(0.0)
+            continue
+        i = int(np.argmin(U_int)) + 1
+        if U[i] < U[i - 1] and U[i] < U[i + 1] and U[i] < baseline:
+            depths.append((baseline - float(U[i])) / abs(E_a))
+        else:
+            depths.append(0.0)
+    return float(np.mean(depths))
+
+
 
 class UnionFind:
     """Disjoint-set with path compression and union by rank (Tarjan 1975)."""
