@@ -89,13 +89,7 @@ def swap_landscape(valency: int, r_grid: np.ndarray,
 def naive_spurious_depth(valency: int, r_low: float, r_high: float, n_target: float,
                          *, r_rep: float, r_att: float, E_r: float, E_a: float,
                          n_r: int = 501) -> float:
-    """Layer 1. The original, pre-correction bare-pair spurious depth.
 
-    A probe neighbour approaches a central particle whose shell of ``valency`` partners is
-    frozen, but the existing bonds are NOT re-counted energetically (no back-reaction) and
-    the reference is the unbound state (baseline zero). This overstates the trap and is
-    kept only for comparison with the corrected layers, see ``sporadic_min_depth``.
-    """
     r_arr = np.linspace(r_rep, r_att, n_r)
     ncut = valency + (n_target - 1.0)
     r_star = 0.5 * (r_rep + r_att)
@@ -144,7 +138,7 @@ def sporadic_min_depth(valency: int, r_low: float, r_high: float, n_target: floa
     W_C = omega_gate(phi_C, ncut)
     W_N = omega_gate(phi_N, ncut)
 
-    # total cluster energy: the C-N bond plus the back-reaction on C's valency existing bonds
+    # total cluster energy -  the C-N bond plus the back-reaction on C's valency existing bonds
     U = (V_rep(r_arr, r_rep, E_r) + W_C * W_N * V_att(r_arr, r_rep, r_att, E_a)
          + valency * W_C * W_S * vatt_rs)
     baseline = valency * float(omega_gate(np.array([valency * rho_rs]), ncut)[0]) * W_S * vatt_rs

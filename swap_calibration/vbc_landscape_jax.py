@@ -1,10 +1,9 @@
 """JAX mirror of the numeric kernels in ``vbc_landscape.py``.
 
-Optional. Only Layer 4 (local Hessian stability, ``stability_jax.py``) needs JAX. Layers
-1 to 3 in ``vbc_landscape.py`` are numpy-only. These reimplementations exist so the
+Optional. Only  local Hessian stability, ``stability_jax.py`` needs JAX. Other controls
+ in ``vbc_landscape.py`` are numpy-only. These reimplementations exist so the
 energy is differentiable (for autodiff Hessians) and so the whole stack can run in one
-JAX environment. The union-find minimax code stays in ``vbc_landscape.py`` (numpy), it is
-a discrete flooding algorithm with no meaningful gradient.
+JAX environment. The union-find minimax code doesn't use JAX.
 """
 from __future__ import annotations
 
@@ -17,15 +16,11 @@ except ModuleNotFoundError as exc:  # pragma: no cover
         '(or "jax[cuda12]" on a GPU node). Layers 1 to 3 in vbc_landscape.py need only numpy.'
     ) from exc
 
-# float64 throughout, so the Hessian eigenvalues match numpy and the p_stable sign test
-# near lambda = 0 is not dominated by float32 roundoff.
+
 jax.config.update("jax_enable_x64", True)
 
 
-# ---------------------------------------------------------------------------
-# Base potential and gate. Branch-free mirrors of vbc_landscape.py, so they are
-# traceable, vmappable and twice-differentiable by autodiff.
-# ---------------------------------------------------------------------------
+
 
 def density_phi(r, lo, hi):
     """Neighbour-counting weight. 1 below ``lo``, a smooth shoulder to 0 at ``hi``."""
@@ -55,10 +50,6 @@ def V_att(r, r_rep, r_att, E_a):
     return jnp.where((r > r_rep) & (r < r_att), E_a * (1.0 - z ** 2) ** 2, 0.0)
 
 
-# ---------------------------------------------------------------------------
-# Differentiable total cluster energy. The DOF are the neighbour radii, so
-# jax.hessian(cluster_energy) is the m x m radial Hessian used by Layer 4.
-# ---------------------------------------------------------------------------
 
 def cluster_energy(r_vec, *, r_low, r_high, ncut, r_rep, r_att, E_r, E_a):
     """Option-1 total energy of a central particle C with its ``m`` neighbours at radial
@@ -79,10 +70,7 @@ def cluster_energy(r_vec, *, r_low, r_high, ncut, r_rep, r_att, E_r, E_a):
     return rep + gC * att
 
 
-# ---------------------------------------------------------------------------
-# JAX ports of the spurious-depth layers. For parity with the numpy versions and
-# a one-environment story, not the fast path (Layers 1 to 3 use numpy).
-# ---------------------------------------------------------------------------
+
 
 def _interior_depth(U, baseline, E_a):
     """Depth of the interior minimum of a 1D profile below ``baseline`` (else 0)."""
@@ -92,7 +80,7 @@ def _interior_depth(U, baseline, E_a):
 
 
 def naive_spurious_depth(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E_a, n_r=501):
-    """Layer 1 (JAX). Bare C-N pair well, no back-reaction, baseline zero."""
+    """Bare C-N pair well, no back-reaction, baseline zero."""
     r_arr = jnp.linspace(r_rep, r_att, n_r)
     ncut = valency + (n_target - 1.0)
     r_star = 0.5 * (r_rep + r_att)
@@ -105,7 +93,7 @@ def naive_spurious_depth(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r,
 
 
 def sporadic_min_depth(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E_a, n_r=501):
-    """Layer 2 (JAX). Deterministic total-cluster-energy spurious depth."""
+    """Deterministic total-cluster-energy spurious depth."""
     r_arr = jnp.linspace(r_rep, r_att, n_r)
     ncut = valency + (n_target - 1.0)
     r_star = 0.5 * (r_rep + r_att)
@@ -123,7 +111,7 @@ def sporadic_min_depth(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E
 
 def spurious_depth(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E_a,
                    key="deterministic", n_sample=100, seed=0, n_r=501):
-    """Layer 3 (JAX). ``key="deterministic"`` calls ``sporadic_min_depth``. ``key="random"``
+    """ ``key="deterministic"`` calls ``sporadic_min_depth``. ``key="random"``
     scatters ``valency`` neighbours uniformly in the binding zone for each of ``n_sample``
     placements (vectorised with ``vmap``) and averages the depth."""
     if key == "deterministic":
