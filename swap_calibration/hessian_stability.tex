@@ -1,0 +1,333 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{mathtools}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue}
+
+\newcommand{\rvec}{\mathbf{r}}
+\newcommand{\one}{\mathbf{1}}
+\newcommand{\wv}{\mathbf{w}'}
+\newcommand{\av}{\mathbf{a}'}
+\newcommand{\tp}{^{\mathsf T}}
+\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator{\rank}{rank}
+
+\title{The over-coordination Hessian and its definiteness}
+\author{VBC gate calibration \quad (\texttt{swap\_calibration})}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{The energy for $n=v+1$}
+
+We test whether a saturated centre can trap one extra particle. A centre that already
+holds its $v$ valency bonds is approached by one more, so there are $n=v+1$ neighbours.
+The angles are fixed and the neighbours interact only with the centre, so the only degrees
+of freedom are the radial distances $\rvec=(r_1,\dots,r_n)$.
+
+With per-bond counting weight $w(r)$, gate $g(x)$, repulsion $V_r(r)$ and attraction
+$V_a(r)$, write the total coordination, the shared gate, the gated single-bond attraction
+and its sum as
+\[
+S=\sum_{j=1}^{n} w(r_j),\qquad
+G=g(S),\qquad
+a(r)=g\!\left(w(r)\right)\,V_a(r),\qquad
+A=\sum_{i=1}^{n} a(r_i).
+\]
+The total energy is
+\[
+\boxed{\;E(\rvec)=\sum_{i=1}^{n} V_r(r_i)\;+\;g(S)\sum_{i=1}^{n} a(r_i)\;=\;\sum_i V_r(r_i)+G\,A\;}
+\]
+The single gate $G=g(S)$ multiplies every bond at once, so adding the extra particle raises
+$S$, pulls $G$ down and weakens all bonds together. That collective back-reaction is what
+the Hessian must carry.
+
+\medskip
+\noindent\textit{Remark.} In the operating range one bond has $w(r)\le 1<n_{\mathrm{cut}}$,
+so the single-bond gate saturates, $g(w(r))=1$, and $a(r)=V_a(r)$. We keep $a(r)$ general
+in the algebra below and use this simplification only at the end.
+
+\section{Gradient}
+
+Write $g'\equiv g'(S)$, $w'_k\equiv w'(r_k)$, $a'_k\equiv a'(r_k)$. Since
+$\partial S/\partial r_k=w'_k$,
+\[
+\frac{\partial E}{\partial r_k}=V_r'(r_k)+g'(S)\,w'_k\,A+g(S)\,a'_k .
+\]
+A stationary configuration solves $\partial E/\partial r_k=0$ for every $k$.
+
+\section{The Hessian is diagonal plus rank two}
+
+Differentiating once more (with $g''\equiv g''(S)$) gives, for all $k,l$,
+\[
+H_{kl}=\frac{\partial^2 E}{\partial r_k\,\partial r_l}
+=\delta_{kl}\,D_k
+\;+\;g''A\,w'_k w'_l
+\;+\;g'\bigl(w'_k a'_l+a'_k w'_l\bigr),
+\]
+with the diagonal term
+\[
+D_k=V_r''(r_k)+g'\,w''(r_k)\,A+g\,a''(r_k).
+\]
+Collect the two coupling vectors $\wv=(w'_1,\dots,w'_n)\tp$ and
+$\av=(a'_1,\dots,a'_n)\tp$ into $U=[\,\wv\mid\av\,]\in\mathbb{R}^{n\times2}$ and set
+\[
+M=\begin{bmatrix} g''A & g' \\[2pt] g' & 0 \end{bmatrix}.
+\]
+Then the full $n\times n$ Hessian is
+\[
+\boxed{\;\mathbf{H}=\mathbf{D}+U\,M\,U\tp,\qquad \mathbf{D}=\diag(D_1,\dots,D_n)\;}
+\]
+Every off-diagonal coupling lives in the rank-two term $U M U\tp$, whose column space is
+$\operatorname{span}\{\wv,\av\}$ regardless of how large $n$ is. Written out entrywise,
+\[
+\mathbf{H}=
+\begin{bmatrix}
+H_{11} & H_{12} & \cdots & H_{1n}\\
+H_{12} & H_{22} & \cdots & H_{2n}\\
+\vdots & \vdots & \ddots & \vdots\\
+H_{1n} & H_{2n} & \cdots & H_{nn}
+\end{bmatrix},
+\qquad
+\begin{aligned}
+H_{kk}&=D_k+g''A\,w'^2_k+2g'\,w'_k a'_k,\\
+H_{kl}&=g''A\,w'_k w'_l+g'\bigl(w'_k a'_l+a'_k w'_l\bigr)\quad(k\ne l).
+\end{aligned}
+\]
+
+\section{Standard definiteness conditions}
+
+The configuration is a locally stable minimum exactly when $\mathbf{H}$ is positive
+definite (every eigenvalue positive). It is an energy maximum when $\mathbf{H}$ is negative
+definite (every eigenvalue negative), and a saddle, which is also unstable, when
+$\mathbf{H}$ is indefinite. So a stable trap means $\mathbf{H}\succ0$, and the arrangement
+is unstable whenever $\mathbf{H}\not\succ0$.
+
+\paragraph{(i) Eigenvalue test.}
+$\mathbf{H}\succ0$ iff $\lambda_i(\mathbf{H})>0$ for all $i$; $\mathbf{H}\prec0$ iff
+$\lambda_i(\mathbf{H})<0$ for all $i$.
+
+\paragraph{(ii) Sylvester's criterion.}
+Let $\Delta_k=\det\bigl(\mathbf{H}_{1:k,\,1:k}\bigr)$ be the leading principal minors. Then
+\[
+\mathbf{H}\succ0 \iff \Delta_k>0\ \ (k=1,\dots,n),
+\qquad
+\mathbf{H}\prec0 \iff (-1)^k\Delta_k>0\ \ (k=1,\dots,n),
+\]
+the second being $-\mathbf{H}\succ0$, that is the minors alternate $-,+,-,\dots$. If neither
+sign pattern holds the matrix is indefinite.
+
+\paragraph{(iii) Rank-two reduction.}
+Because $\rank\bigl(U M U\tp\bigr)\le2$, the $n$-dimensional test collapses. When
+$\mathbf{D}\succ0$ (every diagonal term positive), a congruence by $\mathbf{D}^{-1/2}$
+followed by the Woodbury identity gives
+\[
+\mathbf{H}\succ0 \iff M+\bigl(U\tp\mathbf{D}^{-1}U\bigr)^{-1}\succ0,
+\]
+a single $2\times2$ positive-definiteness test, that is a trace and a determinant. The
+$n-2$ directions orthogonal to $\operatorname{span}\{\wv,\av\}$ carry eigenvalue-one factors
+and never spoil definiteness once $\mathbf{D}\succ0$. This holds as pure linear algebra
+(checked on random $\mathbf{D}\succ0$, agreement $2000/2000$). At a generic radius
+$\mathbf{D}$ is usually indefinite, so this shortcut is most useful in the symmetric case
+below; otherwise use (i) or (ii).
+
+\section{Symmetric configuration, closed form}
+
+The traps of this energy are symmetric, $r_i=r_\star$ for all $i$. Then $w'_k=w'_\star$,
+$a'_k=a'_\star$ and $D_k=D_\star$ are equal, so $\wv=w'_\star\,\one$ and
+$\av=a'_\star\,\one$ are both parallel to the all-ones vector $\one$. The rank-two term
+becomes rank one and $\mathbf{H}$ diagonalises exactly.
+\begin{itemize}
+\item \emph{Shape modes}, the subspace $\one^{\perp}$ of dimension $n-1$. Here $UMU\tp$
+      annihilates the vector, so
+      \[
+      \lambda_{\perp}=D_\star,\qquad\text{multiplicity } n-1 .
+      \]
+\item \emph{Breathing mode}, along $\one$. Using
+      $UMU\tp\one=n\bigl(g''A\,w'^2_\star+2g'\,w'_\star a'_\star\bigr)\one$,
+      \[
+      \lambda_{\parallel}=D_\star+n\,c,\qquad
+      c=g''A\,w'^2_\star+2g'\,w'_\star a'_\star .
+      \]
+\end{itemize}
+The whole spectrum is therefore $\{\,D_\star\ (n-1\text{ times}),\ D_\star+nc\,\}$, and the
+definiteness reads off at once,
+\[
+\boxed{\;
+\mathbf{H}\succ0\ \text{(stable trap)}\iff D_\star>0\ \text{and}\ D_\star+nc>0,
+\;}
+\]
+\[
+\mathbf{H}\prec0\ \text{(maximum, unstable)}\iff D_\star<0\ \text{and}\ D_\star+nc<0,
+\qquad\text{indefinite (saddle, unstable) otherwise.}
+\]
+So the trap is unstable exactly when $D_\star<0$ or $D_\star+nc<0$. The $(n-1)$-fold shape
+curvature $D_\star$ is usually the first to change sign, so the stability of the
+over-coordinated cluster is governed by the single scalar inequality $D_\star>0$, with
+$S=n\,w(r_\star)$, $A=n\,a(r_\star)$ and
+\[
+D_\star=V_r''(r_\star)+g'(S)\,w''(r_\star)\,A+g(S)\,a''(r_\star)
+\;\xrightarrow{\;r_\star>r_{\mathrm{rep}}\;}\;
+g'(S)\,w''(r_\star)\,A+g(S)\,a''(r_\star),
+\]
+the last step using $V_r''=0$ beyond the repulsive core, where a trap sits. The symmetric
+radius itself is the single one-dimensional root of the stationarity condition evaluated at
+the symmetric point,
+\[
+V_r'(r_\star)+g'(S)\,w'(r_\star)\,A+g(S)\,a'(r_\star)=0 .
+\]
+The entire symmetric analysis is thus one 1D root followed by two scalar sign checks, with
+no $n$-dimensional optimisation.
+
+\section{Explicit derivatives}
+
+With $\Delta=r_{\mathrm{high}}-r_{\mathrm{low}}$, $s=(r-r_{\mathrm{low}})/\Delta$,
+$r_e=(r_{\mathrm{rep}}+r_{\mathrm{att}})/2$, $\sigma=(r_{\mathrm{att}}-r_{\mathrm{rep}})/2$,
+$u=(r-r_e)/\sigma$, $z=r/r_{\mathrm{rep}}$ and $t=x-n_{\mathrm{cut}}$, each piece is a
+truncated quartic,
+\[
+\begin{aligned}
+w&:\ w=(1-s^2)^2,\ \ w'=\tfrac{-4s(1-s^2)}{\Delta},\ \ w''=\tfrac{4(3s^2-1)}{\Delta^2}
+   &&(r_{\mathrm{low}}\le r\le r_{\mathrm{high}}),\\
+g&:\ g=(1-t^2)^2,\ \ g'=-4t(1-t^2),\ \ g''=4(3t^2-1)
+   &&(n_{\mathrm{cut}}\le x\le n_{\mathrm{cut}}+1),\\
+V_a&:\ V_a=E_a(1-u^2)^2,\ \ V_a'=\tfrac{-4E_a u(1-u^2)}{\sigma},\ \ V_a''=\tfrac{4E_a(3u^2-1)}{\sigma^2}
+   &&(r_{\mathrm{rep}}< r< r_{\mathrm{att}}),\\
+V_r&:\ V_r=E_r(1-z^2)^2,\ \ V_r'=\tfrac{-4E_r z(1-z^2)}{r_{\mathrm{rep}}},\ \ V_r''=\tfrac{4E_r(3z^2-1)}{r_{\mathrm{rep}}^2}
+   &&(0\le r\le r_{\mathrm{rep}}),
+\end{aligned}
+\]
+each being constant ($w=1$, $g=1$) or zero outside its window. At the well centre $u=0$,
+\[
+V_a''(r_e)=\frac{-4E_a}{\sigma^2}=\frac{16\,|E_a|}{(r_{\mathrm{att}}-r_{\mathrm{rep}})^2}\equiv\kappa_0,
+\]
+the isolated-bond curvature scale (a single decoupled bond reads
+$\lambda_{\min}/\kappa_0=1$). For the composite $a(r)=g(w(r))V_a(r)$,
+\[
+a'=g'(w)\,w'\,V_a+g(w)\,V_a',\qquad
+a''=g''(w)\,w'^2V_a+g'(w)\,w''V_a+2g'(w)\,w'V_a'+g(w)\,V_a'',
+\]
+and in the operating range $w\le1<n_{\mathrm{cut}}$ gives $g(w)=1$, $g'(w)=g''(w)=0$, so
+$a=V_a$, $a'=V_a'$, $a''=V_a''$.
+
+\section{Numerical confirmation}
+
+The analytic $\mathbf{H}=\mathbf{D}+U M U\tp$ reproduces the autodiff Hessian
+\texttt{jax.hessian(cluster\_energy)} to
+$\max|\mathbf{H}_{\text{analytic}}-\mathbf{H}_{\text{autodiff}}|=2.3\times10^{-13}$ over
+random configurations. For the looser gate at $v=4$ ($n=5$), the symmetric point
+$r_\star=1.31$ gives from the closed form $D_\star=-219.89$ (multiplicity $4$) and
+$D_\star+nc=957.05$, matching
+$\texttt{eigvalsh}=[-219.89\ (\times4),\ 957.05]$. Here $D_\star<0$, so this radius is a
+saddle rather than a stable trap, and the stable trap sits at the nearby radius where
+$D_\star$ turns positive.
+
+\section{Eigenvalue localization and gate-specific sign guarantees}
+
+We can say more than the pointwise spectrum. Write the inertia of a symmetric matrix $X$
+as $\bigl(n_+(X),n_0(X),n_-(X)\bigr)$, sort its eigenvalues ascending
+$\lambda_1(X)\le\cdots\le\lambda_n(X)$, and let $d_1\le\cdots\le d_n$ be the sorted diagonal
+curvatures $D_1,\dots,D_n$. The whole analysis rests on one structural fact.
+
+\paragraph{Lemma 1 (the coupling is a two-dimensional saddle).}
+\[
+\det M=\det\!\begin{bmatrix} g''A & g' \\ g' & 0 \end{bmatrix}=-\,g'(S)^2\le0 .
+\]
+So whenever $g'(S)\ne0$ the $2\times2$ matrix $M$ has inertia $(1,0,1)$, one positive and
+one negative eigenvalue. Provided $\mathbf{w}'$ and $\mathbf{a}'$ are linearly independent,
+$UMU\tp$ is therefore a rank-two matrix with exactly one positive eigenvalue, one negative
+eigenvalue and $n-2$ zeros. The exceptional parallel case $\mathbf{w}'\parallel\mathbf{a}'$,
+which is the symmetric configuration, drops it to rank one and is handled exactly in
+Section~5.
+
+\paragraph{Proposition 2 (localization and inertia bounds).}
+With $\operatorname{sig}(UMU\tp)=(1,1)$, adding it to $\mathbf{D}$ is a positive rank-one
+update followed by a negative rank-one update. Cauchy interlacing applied twice gives, for
+every $i$,
+\[
+d_{i-1}\ \le\ \lambda_i(\mathbf{H})\ \le\ d_{i+1}
+\qquad(d_0:=-\infty,\ d_{n+1}:=+\infty),
+\]
+so each eigenvalue of $\mathbf{H}$ sits within one index of the diagonal curvatures. All but
+the smallest and largest are confined to $[d_1,d_n]$, that is at most two eigenvalues leave
+the diagonal range, one downward and one upward. In particular
+\[
+n_-(\mathbf{D})-1\ \le\ n_-(\mathbf{H})\ \le\ n_-(\mathbf{D})+1 ,
+\]
+and the same for $n_+$. A useful corollary needs no diagonalization,
+\[
+\mathbf{H}\succ0\ \Longrightarrow\ \text{at most one }D_k<0 ,
+\]
+so two or more negative diagonal curvatures already force a negative eigenvalue and rule out
+a stable trap. Every claim here was checked on $400$ random configurations per gate with no
+violation.
+
+\paragraph{Proposition 3 (reduction to one degree of freedom, existence by the intermediate value theorem).}
+We do not assume a critical point, we exhibit one. On the symmetric line $r_i=r$ the energy is
+a scalar $\varphi(r)=E(r,\dots,r)=n\,V_r(r)+g(nw(r))\,n\,V_a(r)$, and the full $n\times n$
+Hessian has at \emph{every} $r$ the exact spectrum $\{D_\star(r)\ (\text{mult }n-1),\
+D_\star(r)+nc(r)\}$ of Section~5, with
+\[
+D_\star(r)=V_r''(r)+g'(S)\,w''(r)\,A+g(S)\,V_a''(r),\qquad S=nw(r),\ A=nV_a(r),
+\]
+an explicit function of $r$ that uses no stationarity. Two facts follow.
+\begin{itemize}
+\item $D_\star(r)$ \emph{is not single-signed}. Over the sub-interval where the gate is
+      engaged it takes both signs (for $n=5$, looser $[-420,+87]$, optimised $[-775,+42]$), so
+      no interval-wide definiteness statement exists. The stability of a symmetric arrangement
+      is decided only by the value of $D_\star$ at a critical point, which must first be shown
+      to exist.
+\item \emph{A symmetric critical point exists}. The reduced gradient
+      $\varphi'(r)=n\bigl(g'(S)w'(r)A+g(S)V_a'(r)\bigr)$ is continuous on the gate-engaged
+      interval and changes sign there. For $n=5$, looser
+      $\varphi'(1.32)/n=-11.80$ and $\varphi'(1.34)/n=+10.03$, optimised
+      $\varphi'(1.36)/n=-24.51$ and $\varphi'(1.38)/n=+12.14$, so by the intermediate value
+      theorem a root $r_c$ lies in $(1.32,1.34)$ and $(1.36,1.38)$ respectively, exactly one in
+      each case.
+\end{itemize}
+
+\paragraph{Theorem 4 (classification and the strict separation).}
+At the critical point $r_c$ that Proposition 3 guarantees, and only there, stationarity
+$g'(S)w'(r_c)A=-g(S)V_a'(r_c)$ collapses the shape curvature to
+\[
+D_\star(r_c)=g(S)\,\Bigl[V_a''(r_c)-V_a'(r_c)\,\frac{w''(r_c)}{w'(r_c)}\Bigr]=g(S)\,Q(r_c),
+\qquad Q(r)\equiv V_a''(r)-V_a'(r)\,\frac{w''(r)}{w'(r)} ,
+\]
+so $\operatorname{sign}D_\star(r_c)=\operatorname{sign}Q(r_c)$ ($g(S)\ge0$), while the breathing
+eigenvalue $D_\star(r_c)+nc(r_c)$ stays positive. The symmetric over-coordinated cluster is thus
+never negative definite, it is a stable trap when $Q(r_c)>0$ and an index-$(n-1)$ saddle when
+$Q(r_c)<0$. For the base potential $r_{\mathrm{rep}}=1$, $r_{\mathrm{att}}=1.5$, $E_r=20$,
+$E_a=-2$, the unique critical point at each valency gives
+\[
+\begin{array}{c|cccccc}
+v=n-1 & 1 & 2 & 3 & 4 & 5 & 6\\\hline
+\text{looser } D_\star(r_c)    & -4.18 & 7.21 & 16.01 & 22.60 & 27.79 & 32.09\\
+\text{optimised } D_\star(r_c) & -29.66 & -42.98 & -52.90 & -61.09 & -68.21 & -74.59
+\end{array}
+\]
+Hence the \textbf{optimised} gate has $D_\star(r_c)<0$ at every valency, an index-$(n-1)$
+saddle, and the extra particle is always rejected, the one positive eigenvalue being the
+breathing mode. The \textbf{looser} gate has $D_\star(r_c)>0$ from valency $2$ upward, a genuine
+stable trap (valency $1$ is a lone weak index-$1$ saddle). This settles the symmetric family.
+Asymmetric critical points are not excluded by the argument, relaxation from scattered initial
+placements finds none for these gates, so the symmetric picture appears complete, though that
+last step is numerical rather than proved.
+
+\paragraph{Remark (positive-definiteness alone does not separate the gates).}
+It would be wrong to say the optimised gate is nowhere positive definite. Both gates admit
+positive-definite configurations, on the symmetric line and in the full box. For $n=5$ the
+symmetric-line Hessian is positive definite on
+$r\in(1.106,1.224)\cup(1.325,1.394)$ for the looser gate and on $r\in(1.367,1.394)$ for the
+optimised gate, and a uniform sample of $(1,1.5)^5$ gives comparable positive-definite
+fractions, looser about $1.2\%$ and optimised about $1.6\%$, all genuinely bound
+($E<0$, gate on). What distinguishes a trap is not the existence of a stable direction but its
+coincidence with stationarity. The looser critical point $r_c=1.327$ sits just inside its
+positive-definite interval, which begins at $1.325$, whereas the optimised critical point
+$r_c=1.366$ sits just below its onset at $1.367$. Both margins in $r$ are small, about $0.0015$,
+but $D_\star(r)$ crosses zero steeply, so the shape curvatures there are unambiguous, $+22.6$ for
+the looser gate and $-61$ for the optimised gate. A stable trap is stationary and positive
+definite at once, and only the looser gate meets both conditions together.
+
+\end{document}
