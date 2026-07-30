@@ -23,27 +23,27 @@ The barrier is the lowest level at which the two swap minima join the same conne
 component of the sublevel set, found by union-find flooding. `vbc_landscape.py` holds the
 potential, the landscape and the barrier.
 
-## Layers and the optional stability check
+## Off-channel depth and the optional trap search
 
-`visualize.ipynb` shows the off-channel (spurious) analysis in four layers of increasing
-fidelity. Naive (the original bare-pair depth, overstated), deterministic (the corrected
-total-cluster-energy depth), random (the corrected depth averaged over scattered neighbour
-placements), and a local Hessian stability layer (the curvature of the total energy at
-sampled arrangements). The first three need only numpy and live in `vbc_landscape.py`.
+`visualize.ipynb` shows the off-channel (spurious) minimum depth three ways of increasing
+fidelity. `naive_spurious_depth` is the original bare-pair depth and overstates the trap,
+`sporadic_min_depth` is the corrected total-cluster-energy depth, and
+`spurious_depth(key="random")` averages the corrected depth over scattered neighbour
+placements. All three need only numpy and live in `vbc_landscape.py`.
 
-The fourth layer (`vbc_landscape_jax.py`, `stability_jax.py`) diagonalises the energy
-Hessian with JAX over the over-coordinated cluster of `valency + 1` neighbours (the
-saturating shell plus one extra particle). `find_minima` returns the strictly convex
-interior minima, the arrangements where the extra particle stays trapped with all
+`stability_jax.py` adds the over-coordination trap search and needs JAX. It builds the
+differentiable total energy of a saturated centre plus one extra particle (`valency + 1`
+neighbour radii), and `find_minima` relaxes to the stationary points and keeps the strictly
+convex interior minima, the arrangements where the extra particle stays trapped with all
 `valency + 1` bonds intact. JAX is not pinned in `environment.yml` because it is heavy and
 CUDA-wheel specific. Install it into your analysis env only.
 
 ```bash
-pip install "jax[cpu]"        # login node, fine for this grid
+pip install "jax[cpu]"        # login node, fine for this search
 pip install "jax[cuda12]"     # on a GPU node matching the loaded CUDA
 ```
 
-`vbc_landscape.py` and `search.py` never import JAX. This is a per-configuration Hessian
+`vbc_landscape.py` and `search.py` never import JAX. This is a per-configuration curvature
 check (local convexity), not the paper's macroscopic H-stability.
 
 ## References
