@@ -89,11 +89,8 @@ def swap_landscape(valency: int, r_grid: np.ndarray,
 def naive_spurious_depth(valency: int, r_low: float, r_high: float, n_target: float,
                          *, r_rep: float, r_att: float, E_r: float, E_a: float,
                          n_r: int = 501) -> float:
-    """The pre-correction bare-pair depth, a comparison baseline that overstates the trap.
-
-    Only the approaching C-N bond is felt, with no back-reaction on the central particle's
-    existing bonds and a baseline of zero, so it reads deeper than the corrected estimates.
-    """
+    """Pre-correction bare-pair depth (a baseline that overstates the trap). Only the C-N bond
+    is felt, with no back-reaction and a zero baseline, so it reads deeper than the rest."""
     r_arr = np.linspace(r_rep, r_att, n_r)
     ncut = valency + (n_target - 1.0)
     r_star = 0.5 * (r_rep + r_att)
@@ -121,12 +118,10 @@ def naive_spurious_depth(valency: int, r_low: float, r_high: float, n_target: fl
 def sporadic_min_depth(valency: int, r_low: float, r_high: float, n_target: float,
                        *, r_rep: float, r_att: float, E_r: float, E_a: float,
                        n_r: int = 501) -> float:
-    """Depth of the off-channel minimum, as a fraction of ``|E_a|``.
+    """Corrected off-channel depth (fraction of ``|E_a|``), passive neighbours at the well centre.
 
-    A single particle approaches a central particle whose shell of ``valency``
-    partners is already full, so the gate switches the attraction on and then off
-    again as the count crosses the cap. Any interior minimum of that one-dimensional
-    profile is the spurious trap.
+    A particle approaches a centre whose ``valency`` shell is full, so the gate switches the
+    attraction on then off as the count crosses the cap. Any interior minimum is the trap.
     """
     r_arr = np.linspace(r_rep, r_att, n_r)
     ncut = valency + (n_target - 1.0)
@@ -160,14 +155,9 @@ def spurious_depth(valency: int, r_low: float, r_high: float, n_target: float,
                    *, r_rep: float, r_att: float, E_r: float, E_a: float,
                    key: str = "deterministic", n_sample: int = 100, seed: int = 0,
                    n_r: int = 501) -> float:
-    """Spurious depth with the passive neighbours placed by ``key``.
-
-    ``key="deterministic"`` puts all ``valency`` passive neighbours at the well centre
-    and returns ``sporadic_min_depth``. ``key="random"`` draws ``valency`` neighbour
-    distances uniformly in the binding zone ``(r_rep, r_att)`` for each of ``n_sample``
-    placements, so each contributes its own weight to ``phi_C`` and its own bond to the
-    back-reaction, and returns the depth averaged over the placements.
-    """
+    """Spurious depth with passive neighbours placed by ``key``. ``"deterministic"`` puts them
+    all at the well centre (``sporadic_min_depth``); ``"random"`` averages over ``n_sample``
+    uniform placements in ``(r_rep, r_att)``, each adding its own weight and bond."""
     if key == "deterministic":
         return sporadic_min_depth(valency, r_low, r_high, n_target,
                                   r_rep=r_rep, r_att=r_att, E_r=E_r, E_a=E_a, n_r=n_r)

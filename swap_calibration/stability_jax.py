@@ -1,12 +1,9 @@
 """Over-coordination Hessian stability test (optional, needs JAX).
 
-This is the only stability test in swap_calibration, and the only JAX code. the rest is
-numpy-only. it asks whether a central particle holding its ``valency`` bonds can trap one
-extra approaching particle, so ``m = valency + 1`` neighbour radii. ``cluster_energy`` is
-differentiable, so ``find_minima`` relaxes every grid configuration to ``grad U = 0`` and
-keeps the interior ones whose Hessian is positive-definite (a locally stable minimum with all
-``valency + 1`` neighbours bonded). Neighbours interact with the centre but not with each
-other, so the radial distances are the only meaningful DOF.
+The only stability test here, and the only JAX code; the rest is numpy. Does a centre holding
+``valency`` bonds trap one extra particle (``m = valency + 1`` radii)? find_minima relaxes
+every grid config to ``grad U = 0`` and keeps the interior positive-definite minima. Radii are
+the only DOF, as neighbours couple only to the centre.
 """
 from __future__ import annotations
 
@@ -48,11 +45,8 @@ def V_att(r, r_rep, r_att, E_a):
 
 
 def cluster_energy(r_vec, *, r_low, r_high, ncut, r_rep, r_att, E_r, E_a):
-    """Total energy of a central particle with its neighbours at radii ``r_vec``.
-
-    ``phi_C = sum_j density_phi(r_j)`` and the shared gate ``omega_gate(phi_C)`` multiplies
-    every bond, so adding a neighbour weakens the others. Differentiable scalar.
-    """
+    """Differentiable total energy of a centre with neighbours at radii ``r_vec``. The shared
+    gate ``omega_gate(sum_j phi_j)`` scales every bond, so a new neighbour weakens the rest."""
     w = density_phi(r_vec, r_low, r_high)
     gate = omega_gate(jnp.sum(w), ncut)
     return jnp.sum(V_rep(r_vec, r_rep, E_r)) + gate * jnp.sum(
@@ -60,21 +54,18 @@ def cluster_energy(r_vec, *, r_low, r_high, ncut, r_rep, r_att, E_r, E_a):
 
 
 def curvature_scale(E_a, r_rep, r_att):
-    """Isolated-bond curvature ``|V_att''|`` at the well centre, ``16|E_a|/(r_att-r_rep)^2``.
-    A single decoupled bond then has ``lambda_min / curvature_scale = 1``."""
+    """Isolated-bond curvature ``16|E_a|/(r_att-r_rep)^2`` (a decoupled bond gives lambda_min/this = 1)."""
     return 16.0 * abs(E_a) / (r_att - r_rep) ** 2
 
 
 def find_minima(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E_a,
                 n_grid=10, grad_tol=1e-4, pd_tol=1e-6, tol=1e-3):
-    """Interior minima of the over-coordinated cluster (``m = valency + 1``), by relaxation.
+    """Interior positive-definite minima of the over-coordinated cluster (``m = valency + 1``).
 
-    Seeds are the ``C(n_grid + m - 1, m)`` distinct grid configurations, the sorted multisets
-    of ``m`` radii drawn from an ``n_grid``-point grid on ``[r_rep, r_att]`` (neighbours are
-    identical, so a permutation is the same configuration). Each seed is relaxed to
-    ``grad U = 0`` within ``(r_rep, r_att)`` and kept if it is interior and its Hessian is
-    positive-definite. Returns the distinct ``(r_vec_sorted, U, lambda_min)`` ordered by
-    energy; an empty list means the extra particle is rejected (no trap).
+    Relaxes each of the ``C(n_grid + m - 1, m)`` distinct grid configs (sorted radii multisets,
+    since neighbours are identical) to ``grad U = 0`` in ``(r_rep, r_att)`` and keeps the
+    interior, strictly convex ones. Returns distinct ``(r_vec_sorted, U, lambda_min)`` by
+    energy; empty means no trap.
     """
     m = valency + 1
     ncut = valency + (n_target - 1.0)
@@ -105,8 +96,8 @@ def find_minima(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E_a,
 
 
 def optimal_state_energy(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E_a):
-    """Energy of the ideal ``valency``-coordinated state (all neighbours at the well centre),
-    ``= valency * E_a`` when the cap covers the valency. The reference for a trap's depth."""
+    """Energy of the ideal ``valency``-coordinated state (all bonds at the well centre), the
+    depth reference. equals ``valency * E_a`` when the cap covers the valency."""
     ncut = valency + (n_target - 1.0)
     r_star = 0.5 * (r_rep + r_att)
     return float(cluster_energy(jnp.full(valency, r_star), r_low=r_low, r_high=r_high,
