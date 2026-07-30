@@ -9,6 +9,8 @@ centre but not with each other, so the radial distances are the only meaningful 
 """
 from __future__ import annotations
 
+from itertools import combinations_with_replacement
+
 import numpy as np
 from scipy.optimize import minimize
 
@@ -63,13 +65,15 @@ def curvature_scale(E_a, r_rep, r_att):
 
 
 def find_minima(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E_a,
-                n_seed=500, seed=0, grad_tol=1e-4, pd_tol=1e-6, tol=1e-3):
-    """Strictly convex interior minima of the over-coordinated cluster (``m = valency + 1``).
+                n_grid=10, grad_tol=1e-4, pd_tol=1e-6, tol=1e-3):
+    """Interior minima of the over-coordinated cluster (``m = valency + 1``), by relaxation.
 
-    Seeds (the symmetric state, a one-neighbour sweep through it, and a random sample) are
-    relaxed to ``grad U = 0`` within ``(r_rep, r_att)``. a converged point is kept if it is
-    interior and its Hessian is positive-definite. Returns ``(r_vec_sorted, U, lambda_min)``
-    ordered by energy; an empty list means the extra particle is rejected (no trap).
+    Seeds are the ``C(n_grid + m - 1, m)`` distinct grid configurations, the sorted multisets
+    of ``m`` radii drawn from an ``n_grid``-point grid on ``[r_rep, r_att]`` (neighbours are
+    identical, so a permutation is the same configuration). Each seed is relaxed to
+    ``grad U = 0`` within ``(r_rep, r_att)`` and kept if it is interior and its Hessian is
+    positive-definite. Returns the distinct ``(r_vec_sorted, U, lambda_min)`` ordered by
+    energy; an empty list means the extra particle is rejected (no trap).
     """
     m = valency + 1
     ncut = valency + (n_target - 1.0)
@@ -80,19 +84,11 @@ def find_minima(valency, r_low, r_high, n_target, *, r_rep, r_att, E_r, E_a,
     f = lambda r: float(E(jnp.asarray(r)))
     g = lambda r: np.asarray(dE(jnp.asarray(r)), float)
 
-    r_star = 0.5 * (r_rep + r_att)
-    seeds = [np.full(m, r_star)]
-    for j in range(m):
-        for v in np.linspace(r_rep, r_att, 21):
-            s = np.full(m, r_star)
-            s[j] = v
-            seeds.append(s)
-    rng = np.random.default_rng(seed)
-    seeds += [rng.uniform(r_rep, r_att, m) for _ in range(n_seed)]
-
+    grid = np.linspace(r_rep, r_att, n_grid)
     out = []
-    for x0 in seeds:
-        x = np.sort(minimize(f, x0, jac=g, method="L-BFGS-B", bounds=[(r_rep, r_att)] * m).x)
+    for combo in combinations_with_replacement(grid, m):
+        x = np.sort(minimize(f, np.array(combo), jac=g, method="L-BFGS-B",
+                             bounds=[(r_rep, r_att)] * m).x)
         if np.linalg.norm(g(x)) > grad_tol:                      # not stationary
             continue
         if x[0] <= r_rep + tol or x[-1] >= r_att - tol:          # a bond on the boundary
