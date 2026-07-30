@@ -89,7 +89,11 @@ def swap_landscape(valency: int, r_grid: np.ndarray,
 def naive_spurious_depth(valency: int, r_low: float, r_high: float, n_target: float,
                          *, r_rep: float, r_att: float, E_r: float, E_a: float,
                          n_r: int = 501) -> float:
+    """The pre-correction bare-pair depth, a comparison baseline that overstates the trap.
 
+    Only the approaching C-N bond is felt, with no back-reaction on the central particle's
+    existing bonds and a baseline of zero, so it reads deeper than the corrected estimates.
+    """
     r_arr = np.linspace(r_rep, r_att, n_r)
     ncut = valency + (n_target - 1.0)
     r_star = 0.5 * (r_rep + r_att)

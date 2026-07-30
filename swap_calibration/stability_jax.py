@@ -1,11 +1,12 @@
-"""Over-coordination trap search (optional, needs JAX).
+"""Over-coordination Hessian stability test (optional, needs JAX).
 
-The rest of swap_calibration is numpy-only. JAX is used only here, to search for a trap.
-a central particle holding its ``valency`` bonds plus one extra approaching particle, so
-``m = valency + 1`` neighbour radii. ``cluster_energy`` is differentiable, so ``find_minima``
-relaxes seeds to ``grad U = 0`` and keeps the strictly convex interior minima (each is a
-stable arrangement with all ``valency + 1`` neighbours bonded). Neighbours interact with the
-centre but not with each other, so the radial distances are the only meaningful DOF.
+This is the only stability test in swap_calibration, and the only JAX code. the rest is
+numpy-only. it asks whether a central particle holding its ``valency`` bonds can trap one
+extra approaching particle, so ``m = valency + 1`` neighbour radii. ``cluster_energy`` is
+differentiable, so ``find_minima`` relaxes every grid configuration to ``grad U = 0`` and
+keeps the interior ones whose Hessian is positive-definite (a locally stable minimum with all
+``valency + 1`` neighbours bonded). Neighbours interact with the centre but not with each
+other, so the radial distances are the only meaningful DOF.
 """
 from __future__ import annotations
 
