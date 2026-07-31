@@ -1,7 +1,6 @@
-"""Over-coordination Hessian stability test (optional, needs JAX).
+"""Over-coordination Hessian stability test (needs JAX).
 
-The only stability test here, and the only JAX code; the rest is numpy. Does a centre holding
-``valency`` bonds trap one extra particle (``m = valency + 1`` radii)? find_minima relaxes
+Does a centre holding ``valency`` bonds trap one extra particle (``m = valency + 1`` radii)? find_minima relaxes
 every grid config to ``grad U = 0`` and keeps the interior positive-definite minima. Radii are
 the only DOF, as neighbours couple only to the centre.
 """
@@ -15,7 +14,7 @@ from scipy.optimize import minimize
 try:
     import jax
     import jax.numpy as jnp
-except ModuleNotFoundError as exc:  # pragma: no cover
+except ModuleNotFoundError as exc:  
     raise ModuleNotFoundError(
         'stability_jax needs JAX. Install with  pip install "jax[cpu]"  (or "jax[cuda12]" on '
         "a GPU node). The rest of swap_calibration is numpy-only.") from exc
