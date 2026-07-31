@@ -23,20 +23,13 @@ The barrier is the lowest level at which the two swap minima join the same conne
 component of the sublevel set, found by union-find flooding. `vbc_landscape.py` holds the
 potential, the landscape and the barrier.
 
-## Off-channel depth and the optional trap search
+## Off-channel depth and trap search
 
-`visualize.ipynb` shows the off-channel (spurious) minimum depth three ways of increasing
-fidelity. `naive_spurious_depth` is the original bare-pair depth and overstates the trap,
-`sporadic_min_depth` is the corrected total-cluster-energy depth, and
-`spurious_depth(key="random")` averages the corrected depth over scattered neighbour
-placements. All three need only numpy and live in `vbc_landscape.py`.
-
-`stability_jax.py` adds the over-coordination trap search and needs JAX. It builds the
+`stability_jax.py` adds over-coordination trap search and needs JAX. It builds the
 differentiable total energy of a saturated centre plus one extra particle (`valency + 1`
 neighbour radii), and `find_minima` relaxes to the stationary points and keeps the strictly
 convex interior minima, the arrangements where the extra particle stays trapped with all
-`valency + 1` bonds intact. JAX is not pinned in `environment.yml` because it is heavy and
-CUDA-wheel specific. Install it into your analysis env only.
+`valency + 1` bonds intact. JAX is not pinned in `environment.yml`. 
 
 ```bash
 pip install "jax[cpu]"        # login node, fine for this search
