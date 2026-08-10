@@ -19,10 +19,11 @@ from conftest import (attach_vbc, compute_static, make_snapshot, norm_err,
 from vbc_reference import CONFIGS
 
 # Tolerances for the plugin-vs-reference comparisons (normalised inf-norm).
-# The force math currently runs in double precision; these flip to the float32
-# values (~1e-6 / 5e-4) in the commit that narrows the pair math to float.
-TOL = 1e-10
-NET_FORCE_TOL = 1e-9
+# The per-pair math runs in float32 (separations are narrowed after the double
+# minimum image), so agreement with the float64 reference is limited by float
+# rounding: measured ~1e-6 on forces across the three regimes.
+TOL = 1e-5
+NET_FORCE_TOL = 5e-4
 
 DEVICES = ['cpu', 'gpu']
 
