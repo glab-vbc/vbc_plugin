@@ -77,6 +77,16 @@ def test_gpu_bitwise_deterministic(request, config_name):
     assert np.array_equal(E1, E2) and np.array_equal(F1, F2)
 
 
+@pytest.mark.parametrize('config_name', list(CONFIGS))
+def test_cpu_vs_gpu(request, config_name):
+    """The two backends share the three-sweep structure; they must agree to
+    summation-order rounding."""
+    E_c, F_c, V_c = compute_static(request.getfixturevalue('cpu_device'), config_name)
+    E_g, F_g, V_g = compute_static(request.getfixturevalue('gpu_device'), config_name)
+    assert norm_err(E_c, E_g) < TOL
+    assert norm_err(F_c, F_g) < TOL
+
+
 def test_nve_conservation(gpu_device):
     """FP core: energy and momentum conserved by the force in an NVE run."""
     snap, types, pair_params, L = make_snapshot('global-uniform')

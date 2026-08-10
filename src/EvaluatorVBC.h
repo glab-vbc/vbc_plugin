@@ -152,11 +152,6 @@ class EvaluatorVBC
         return m_rinv;
         }
 
-    DEVICE static bool hasPerParticleEnergy()
-        {
-        return true;
-        }
-
     //! Density weight w(r): 1 below the window, quartic ease to 0 across it.
     DEVICE void evalPhi(Scalar& phi)
         {
@@ -248,25 +243,6 @@ class EvaluatorVBC
             rep_eng += p.E_r * u * u;
             rep_eng_div += Scalar(-4.0) * p.E_r * t * u * p.inv_rep_rcut;
             }
-        }
-
-    DEVICE void evalForceij(
-        Scalar& force_divr,
-        Scalar& potential_eng,
-        Scalar rep_eng,
-        Scalar rep_eng_div,
-        Scalar attr_eng,
-        Scalar attr_eng_div,
-        Scalar s_ij,
-        Scalar s_ij_sum,
-        Scalar W1,
-        Scalar W2,
-        Scalar Wrij_div)
-        {
-        potential_eng += Scalar(0.5) * (rep_eng + W1 * W2 * attr_eng);
-        Scalar local_s_ij = pickPhi(s_ij, s_ij_sum);
-        force_divr += Scalar(0.5) * (rep_eng_div + W1 * W2 * attr_eng_div)
-                      + Wrij_div * local_s_ij;
         }
 
 #ifndef __HIPCC__
