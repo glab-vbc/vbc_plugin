@@ -68,6 +68,7 @@ template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uin
     {
 
     this->m_nlist->compute(timestep);
+    this->checkSupported();
 
     bool third_law = this->m_nlist->getStorageMode() == NeighborList::half;
     if (third_law)

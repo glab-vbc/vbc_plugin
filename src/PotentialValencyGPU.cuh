@@ -344,6 +344,12 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
     const Scalar s_i_total = d_s_ab_arr[idx * (ntypes + 1) + ntypes];
 
     Scalar4 forcei = make_scalar4(Scalar(0.0), Scalar(0.0), Scalar(0.0), Scalar(0.0));
+    Scalar virialxx = Scalar(0.0);
+    Scalar virialxy = Scalar(0.0);
+    Scalar virialxz = Scalar(0.0);
+    Scalar virialyy = Scalar(0.0);
+    Scalar virialyz = Scalar(0.0);
+    Scalar virialzz = Scalar(0.0);
 
     unsigned int cur_j = 0;
     unsigned int next_j
@@ -410,6 +416,19 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
         forcei.y += dxij.y * force_divr;
         forcei.z += dxij.z * force_divr;
         forcei.w += Scalar(0.5) * (rep_eng + W1W2 * attr_eng);
+
+        // Half the pairwise virial per endpoint; every force term, the
+        // many-body one included, is central (parallel to dxij), so the
+        // textbook pairwise formula applies term by term.
+        if (compute_virial)
+            {
+            virialxx += Scalar(0.5) * dxij.x * dxij.x * force_divr;
+            virialxy += Scalar(0.5) * dxij.x * dxij.y * force_divr;
+            virialxz += Scalar(0.5) * dxij.x * dxij.z * force_divr;
+            virialyy += Scalar(0.5) * dxij.y * dxij.y * force_divr;
+            virialyz += Scalar(0.5) * dxij.y * dxij.z * force_divr;
+            virialzz += Scalar(0.5) * dxij.z * dxij.z * force_divr;
+            }
         }
 
     // Combine the team's partials with register shuffles; one write, no atomics.
@@ -418,8 +437,29 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
     forcei.z = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(forcei.z);
     forcei.w = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(forcei.w);
 
+    if (compute_virial)
+        {
+        virialxx = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(virialxx);
+        virialxy = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(virialxy);
+        virialxz = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(virialxz);
+        virialyy = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(virialyy);
+        virialyz = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(virialyz);
+        virialzz = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(virialzz);
+        }
+
     if ((threadIdx.x % tpp) == 0)
+        {
         d_force[idx] = forcei;
+        if (compute_virial)
+            {
+            d_virial[0 * virial_pitch + idx] = virialxx;
+            d_virial[1 * virial_pitch + idx] = virialxy;
+            d_virial[2 * virial_pitch + idx] = virialxz;
+            d_virial[3 * virial_pitch + idx] = virialyy;
+            d_virial[4 * virial_pitch + idx] = virialyz;
+            d_virial[5 * virial_pitch + idx] = virialzz;
+            }
+        }
     }
 
 template<typename T>
@@ -484,12 +524,6 @@ template<class evaluator, unsigned int compute_virial, int tpp> struct ValencyCo
                     }
                 slab_shared = pair_args.ntypes * run_block_size * sizeof(Scalar);
                 }
-
-            // The kernels overwrite their outputs (plain stores, no
-            // accumulation), so the force and phi arrays no longer need to be
-            // zeroed each step. The virial is still zeroed: nothing writes it
-            // yet.
-            hipMemset(pair_args.d_virial, 0, sizeof(Scalar) * pair_args.virial_pitch * 6);
 
             dim3 grid(pair_args.N / (run_block_size / pair_args.tpp) + 1, 1, 1);
             dim3 threads(run_block_size, 1, 1);

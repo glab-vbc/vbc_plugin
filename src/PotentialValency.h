@@ -61,6 +61,21 @@ template<class evaluator> class PYBIND11_EXPORT PotentialValency : public hoomd:
         m_attached = false;
         }
 
+    //! Reject configurations whose forces would be silently wrong.
+    /*! Under MPI domain decomposition the density sweep fills phi for owned
+        particles only; ghost neighbours would be read with phi = 0, and a zero
+        density means a fully open valency gate - bonds crossing a domain
+        boundary would never be capped. Refuse instead of miscomputing. */
+    void checkSupported()
+        {
+        if (m_pdata->getNGhosts() != 0)
+            {
+            throw std::runtime_error(
+                "vbc_plugin does not support MPI domain decomposition: ghost "
+                "particle densities are not communicated between ranks.");
+            }
+        }
+
 #ifdef ENABLE_MPI
 
     virtual CommFlags getRequestedCommFlags(uint64_t timestep);
@@ -246,6 +261,7 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
     {
 
     m_nlist->compute(timestep);
+    checkSupported();
 
     bool third_law = m_nlist->getStorageMode() == NeighborList::half;
     if (third_law)
@@ -279,8 +295,11 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
     ArrayHandle<Scalar> h_rcutsq(m_rcutsq, access_location::host, access_mode::read);
     ArrayHandle<param_type> h_params(m_params, access_location::host, access_mode::read);
 
-    // Forces, phi, and S are overwritten below; only the virial still needs
-    // zeroing (nothing writes it yet).
+    PDataFlags flags = this->m_pdata->getFlags();
+    const bool compute_virial = flags[pdata_flag::pressure_tensor];
+
+    // Forces, phi, and S are overwritten below; the virial rows are written
+    // only on steps where pressure is requested, so zero them up front.
     memset(h_virial.data, 0, sizeof(Scalar) * 6 * m_virial_pitch);
 
     const unsigned int N = m_pdata->getN();
@@ -384,6 +403,7 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
 
         Scalar3 fi = make_scalar3(0.0, 0.0, 0.0);
         Scalar pei = Scalar(0.0);
+        Scalar vxx = 0, vxy = 0, vxz = 0, vyy = 0, vyz = 0, vzz = 0;
 
         for (unsigned int j = 0; j < h_n_neigh.data[i]; j++)
             {
@@ -434,12 +454,34 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
             fi.y += dxij.y * force_divr;
             fi.z += dxij.z * force_divr;
             pei += Scalar(0.5) * (rep_eng + W1W2 * attr_eng);
+
+            // Half the pairwise virial per endpoint; every force term is
+            // central (parallel to dxij), the many-body one included.
+            if (compute_virial)
+                {
+                vxx += Scalar(0.5) * dxij.x * dxij.x * force_divr;
+                vxy += Scalar(0.5) * dxij.x * dxij.y * force_divr;
+                vxz += Scalar(0.5) * dxij.x * dxij.z * force_divr;
+                vyy += Scalar(0.5) * dxij.y * dxij.y * force_divr;
+                vyz += Scalar(0.5) * dxij.y * dxij.z * force_divr;
+                vzz += Scalar(0.5) * dxij.z * dxij.z * force_divr;
+                }
             }
 
         h_force.data[i].x = fi.x;
         h_force.data[i].y = fi.y;
         h_force.data[i].z = fi.z;
         h_force.data[i].w = pei;
+
+        if (compute_virial)
+            {
+            h_virial.data[0 * m_virial_pitch + i] = vxx;
+            h_virial.data[1 * m_virial_pitch + i] = vxy;
+            h_virial.data[2 * m_virial_pitch + i] = vxz;
+            h_virial.data[3 * m_virial_pitch + i] = vyy;
+            h_virial.data[4 * m_virial_pitch + i] = vyz;
+            h_virial.data[5 * m_virial_pitch + i] = vzz;
+            }
         }
 
     }
@@ -452,8 +494,6 @@ CommFlags PotentialValency<evaluator>::getRequestedCommFlags(uint64_t timestep)
     CommFlags flags = CommFlags(0);
 
     flags |= hoomd::ForceCompute::getRequestedCommFlags(timestep);
-
-    flags[comm_flag::reverse_net_force] = 1;
 
     flags[comm_flag::tag] = 1;
 
