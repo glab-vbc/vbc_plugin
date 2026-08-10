@@ -61,6 +61,21 @@ template<class evaluator> class PYBIND11_EXPORT PotentialValency : public hoomd:
         m_attached = false;
         }
 
+    //! Reject configurations whose forces would be silently wrong.
+    /*! Under MPI domain decomposition the density sweep fills phi for owned
+        particles only; ghost neighbours would be read with phi = 0, and a zero
+        density means a fully open valency gate - bonds crossing a domain
+        boundary would never be capped. Refuse instead of miscomputing. */
+    void checkSupported()
+        {
+        if (m_pdata->getNGhosts() != 0)
+            {
+            throw std::runtime_error(
+                "vbc_plugin does not support MPI domain decomposition: ghost "
+                "particle densities are not communicated between ranks.");
+            }
+        }
+
 #ifdef ENABLE_MPI
 
     virtual CommFlags getRequestedCommFlags(uint64_t timestep);
@@ -89,10 +104,10 @@ template<class evaluator> class PYBIND11_EXPORT PotentialValency : public hoomd:
 
     std::shared_ptr<VBCRCutArray<Scalar>> m_r_cut_nlist;
 
-    GPUArray<Scalar> m_phi_ab_arr;
+    GPUArray<float> m_phi_ab_arr;
 
     //! Many-body chain-rule sums S, same per-particle row layout as m_phi_ab_arr.
-    GPUArray<Scalar> m_s_ab_arr;
+    GPUArray<float> m_s_ab_arr;
 
     virtual void computeForces(uint64_t timestep);
     };
@@ -117,9 +132,9 @@ PotentialValency<evaluator>::PotentialValency(std::shared_ptr<SystemDefinition> 
         = std::make_shared<VBCRCutArray<Scalar>>(m_typpair_idx.getNumElements(), m_exec_conf);
     nlist->addRCutMatrix(m_r_cut_nlist);
 
-    GPUArray<Scalar> phi_ab_arr((m_pdata->getN()+m_pdata->getNGhosts()) * (m_pdata->getNTypes() + 1), this->m_exec_conf);
+    GPUArray<float> phi_ab_arr((m_pdata->getN()+m_pdata->getNGhosts()) * (m_pdata->getNTypes() + 1), this->m_exec_conf);
     m_phi_ab_arr.swap(phi_ab_arr);
-    GPUArray<Scalar> s_ab_arr((m_pdata->getN()+m_pdata->getNGhosts()) * (m_pdata->getNTypes() + 1), this->m_exec_conf);
+    GPUArray<float> s_ab_arr((m_pdata->getN()+m_pdata->getNGhosts()) * (m_pdata->getNTypes() + 1), this->m_exec_conf);
     m_s_ab_arr.swap(s_ab_arr);
 
     }
@@ -246,6 +261,7 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
     {
 
     m_nlist->compute(timestep);
+    checkSupported();
 
     bool third_law = m_nlist->getStorageMode() == NeighborList::half;
     if (third_law)
@@ -272,15 +288,18 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
 
     ArrayHandle<Scalar4> h_force(m_force, access_location::host, access_mode::overwrite);
     ArrayHandle<Scalar> h_virial(m_virial, access_location::host, access_mode::overwrite);
-    ArrayHandle<Scalar> h_phi(m_phi_ab_arr, access_location::host, access_mode::overwrite);
-    ArrayHandle<Scalar> h_s(m_s_ab_arr, access_location::host, access_mode::overwrite);
+    ArrayHandle<float> h_phi(m_phi_ab_arr, access_location::host, access_mode::overwrite);
+    ArrayHandle<float> h_s(m_s_ab_arr, access_location::host, access_mode::overwrite);
 
     const BoxDim box = m_pdata->getBox();
     ArrayHandle<Scalar> h_rcutsq(m_rcutsq, access_location::host, access_mode::read);
     ArrayHandle<param_type> h_params(m_params, access_location::host, access_mode::read);
 
-    // Forces, phi, and S are overwritten below; only the virial still needs
-    // zeroing (nothing writes it yet).
+    PDataFlags flags = this->m_pdata->getFlags();
+    const bool compute_virial = flags[pdata_flag::pressure_tensor];
+
+    // Forces, phi, and S are overwritten below; the virial rows are written
+    // only on steps where pressure is requested, so zero them up front.
     memset(h_virial.data, 0, sizeof(Scalar) * 6 * m_virial_pitch);
 
     const unsigned int N = m_pdata->getN();
@@ -295,9 +314,9 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
         const size_t head_i = h_head_list.data[i];
 
         for (unsigned int b = 0; b < row; ++b)
-            h_phi.data[i * row + b] = Scalar(0.0);
+            h_phi.data[i * row + b] = 0.0f;
 
-        Scalar total = Scalar(0.0);
+        float total = 0.0f;
         for (unsigned int j = 0; j < h_n_neigh.data[i]; j++)
             {
             const unsigned int jj = h_nlist.data[head_i + j];
@@ -307,13 +326,15 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
             const unsigned int typej = __scalar_as_int(h_pos.data[jj].w);
             const unsigned int typpair = m_typpair_idx(typei, typej);
 
+            // Subtraction and minimum image in double, then narrow once;
+            // everything downstream is float, mirroring the GPU kernels.
             Scalar3 dxij = box.minImage(posi - posj);
-            Scalar rij_sq = dot(dxij, dxij);
-            if (rij_sq >= h_rcutsq.data[typpair])
+            const float rij_sq = float(dot(dxij, dxij));
+            if (rij_sq >= float(h_rcutsq.data[typpair]))
                 continue;
 
             evaluator eval(rij_sq, h_params.data[typpair]);
-            Scalar local_phi = Scalar(0.0);
+            float local_phi = 0.0f;
             eval.evalPhi(local_phi);
             h_phi.data[i * row + typej] += local_phi;
             total += local_phi;
@@ -329,12 +350,12 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
         Scalar3 posi = make_scalar3(h_pos.data[i].x, h_pos.data[i].y, h_pos.data[i].z);
         const unsigned int typei = __scalar_as_int(h_pos.data[i].w);
         const size_t head_i = h_head_list.data[i];
-        const Scalar phi_i_total = h_phi.data[i * row + ntypes];
+        const float phi_i_total = h_phi.data[i * row + ntypes];
 
         for (unsigned int b = 0; b < row; ++b)
-            h_s.data[i * row + b] = Scalar(0.0);
+            h_s.data[i * row + b] = 0.0f;
 
-        Scalar total = Scalar(0.0);
+        float total = 0.0f;
         for (unsigned int j = 0; j < h_n_neigh.data[i]; j++)
             {
             const unsigned int jj = h_nlist.data[head_i + j];
@@ -343,28 +364,28 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
             const unsigned int typpair = m_typpair_idx(typei, typej);
 
             Scalar3 dxij = box.minImage(posi - posj);
-            Scalar rij_sq = dot(dxij, dxij);
-            if (rij_sq >= h_rcutsq.data[typpair])
+            const float rij_sq = float(dot(dxij, dxij));
+            if (rij_sq >= float(h_rcutsq.data[typpair]))
                 continue;
 
             evaluator evalij(rij_sq, h_params.data[typpair]);
 
-            Scalar W1_div = Scalar(0.0);
+            float W1_div = 0.0f;
             evalij.evalOmegaDiv(W1_div, h_phi.data[i * row + typej], phi_i_total);
-            if (W1_div == Scalar(0.0))
+            if (W1_div == 0.0f)
                 continue;
 
-            Scalar attr_eng = Scalar(0.0);
-            Scalar attr_eng_div = Scalar(0.0);
+            float attr_eng = 0.0f;
+            float attr_eng_div = 0.0f;
             evalij.evalAttractive(attr_eng, attr_eng_div);
-            if (attr_eng == Scalar(0.0))
+            if (attr_eng == 0.0f)
                 continue;
 
-            Scalar W2 = Scalar(0.0);
+            float W2 = 0.0f;
             evalij.evalOmegaji(W2, h_phi.data[jj * row + typei],
                                h_phi.data[jj * row + ntypes]);
 
-            const Scalar contrib = W1_div * W2 * attr_eng;
+            const float contrib = W1_div * W2 * attr_eng;
             h_s.data[i * row + typej] += contrib;
             total += contrib;
             }
@@ -379,11 +400,11 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
         const unsigned int typei = __scalar_as_int(h_pos.data[i].w);
         const size_t head_i = h_head_list.data[i];
 
-        const Scalar phi_i_total = h_phi.data[i * row + ntypes];
-        const Scalar s_i_total = h_s.data[i * row + ntypes];
+        const float phi_i_total = h_phi.data[i * row + ntypes];
+        const float s_i_total = h_s.data[i * row + ntypes];
 
-        Scalar3 fi = make_scalar3(0.0, 0.0, 0.0);
-        Scalar pei = Scalar(0.0);
+        float fx = 0.0f, fy = 0.0f, fz = 0.0f, pei = 0.0f;
+        float vxx = 0, vxy = 0, vxz = 0, vyy = 0, vyz = 0, vzz = 0;
 
         for (unsigned int j = 0; j < h_n_neigh.data[i]; j++)
             {
@@ -392,54 +413,78 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
             const unsigned int typej = __scalar_as_int(h_pos.data[jj].w);
             const unsigned int typpair = m_typpair_idx(typei, typej);
 
-            Scalar3 dxij = box.minImage(posi - posj);
-            Scalar rij_sq = dot(dxij, dxij);
-            if (rij_sq >= h_rcutsq.data[typpair])
+            Scalar3 dxd = box.minImage(posi - posj);
+            const float dx = float(dxd.x), dy = float(dxd.y), dz = float(dxd.z);
+            const float rij_sq = dx * dx + dy * dy + dz * dz;
+            if (rij_sq >= float(h_rcutsq.data[typpair]))
                 continue;
 
             evaluator evalij(rij_sq, h_params.data[typpair]);
 
-            Scalar rep_eng = Scalar(0.0);
-            Scalar rep_eng_div = Scalar(0.0);
-            Scalar attr_eng = Scalar(0.0);
-            Scalar attr_eng_div = Scalar(0.0);
+            float rep_eng = 0.0f;
+            float rep_eng_div = 0.0f;
+            float attr_eng = 0.0f;
+            float attr_eng_div = 0.0f;
             evalij.evalRepulsive(rep_eng, rep_eng_div);
             evalij.evalAttractive(attr_eng, attr_eng_div);
 
-            Scalar W1W2 = Scalar(0.0);
-            if (attr_eng != Scalar(0.0) || attr_eng_div != Scalar(0.0))
+            float W1W2 = 0.0f;
+            if (attr_eng != 0.0f || attr_eng_div != 0.0f)
                 {
-                Scalar W1 = Scalar(0.0);
-                Scalar W2 = Scalar(0.0);
+                float W1 = 0.0f;
+                float W2 = 0.0f;
                 evalij.evalOmega(W1, h_phi.data[i * row + typej], phi_i_total);
                 evalij.evalOmegaji(W2, h_phi.data[jj * row + typei],
                                    h_phi.data[jj * row + ntypes]);
                 W1W2 = W1 * W2;
                 }
 
-            Scalar dedr = rep_eng_div + W1W2 * attr_eng_div;
-            Scalar Wrij_div = Scalar(0.0);
+            float dedr = rep_eng_div + W1W2 * attr_eng_div;
+            float Wrij_div = 0.0f;
             evalij.evalPhiDiv(Wrij_div);
-            if (Wrij_div != Scalar(0.0))
+            if (Wrij_div != 0.0f)
                 {
-                const Scalar s_i = evalij.pickPhi(h_s.data[i * row + typej], s_i_total);
-                const Scalar s_j = evalij.pickPhi(h_s.data[jj * row + typei],
-                                                  h_s.data[jj * row + ntypes]);
+                const float s_i = evalij.pickPhi(h_s.data[i * row + typej], s_i_total);
+                const float s_j = evalij.pickPhi(h_s.data[jj * row + typei],
+                                                 h_s.data[jj * row + ntypes]);
                 dedr += Wrij_div * (s_i + s_j);
                 }
 
-            const Scalar force_divr = -dedr * evalij.rinv();
+            const float force_divr = -dedr * evalij.rinv();
 
-            fi.x += dxij.x * force_divr;
-            fi.y += dxij.y * force_divr;
-            fi.z += dxij.z * force_divr;
-            pei += Scalar(0.5) * (rep_eng + W1W2 * attr_eng);
+            fx += dx * force_divr;
+            fy += dy * force_divr;
+            fz += dz * force_divr;
+            pei += 0.5f * (rep_eng + W1W2 * attr_eng);
+
+            // Half the pairwise virial per endpoint; every force term is
+            // central (parallel to the separation), the many-body one included.
+            if (compute_virial)
+                {
+                vxx += 0.5f * dx * dx * force_divr;
+                vxy += 0.5f * dx * dy * force_divr;
+                vxz += 0.5f * dx * dz * force_divr;
+                vyy += 0.5f * dy * dy * force_divr;
+                vyz += 0.5f * dy * dz * force_divr;
+                vzz += 0.5f * dz * dz * force_divr;
+                }
             }
 
-        h_force.data[i].x = fi.x;
-        h_force.data[i].y = fi.y;
-        h_force.data[i].z = fi.z;
-        h_force.data[i].w = pei;
+        // Widen back to Scalar at the single per-particle store.
+        h_force.data[i].x = Scalar(fx);
+        h_force.data[i].y = Scalar(fy);
+        h_force.data[i].z = Scalar(fz);
+        h_force.data[i].w = Scalar(pei);
+
+        if (compute_virial)
+            {
+            h_virial.data[0 * m_virial_pitch + i] = Scalar(vxx);
+            h_virial.data[1 * m_virial_pitch + i] = Scalar(vxy);
+            h_virial.data[2 * m_virial_pitch + i] = Scalar(vxz);
+            h_virial.data[3 * m_virial_pitch + i] = Scalar(vyy);
+            h_virial.data[4 * m_virial_pitch + i] = Scalar(vyz);
+            h_virial.data[5 * m_virial_pitch + i] = Scalar(vzz);
+            }
         }
 
     }
@@ -452,8 +497,6 @@ CommFlags PotentialValency<evaluator>::getRequestedCommFlags(uint64_t timestep)
     CommFlags flags = CommFlags(0);
 
     flags |= hoomd::ForceCompute::getRequestedCommFlags(timestep);
-
-    flags[comm_flag::reverse_net_force] = 1;
 
     flags[comm_flag::tag] = 1;
 

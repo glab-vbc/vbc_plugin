@@ -29,6 +29,14 @@ namespace md
     derivatives, and the repulsive core / attractive well of the base pair
     potential.
 
+    All per-pair math runs in float32: on consumer GPUs double precision
+    executes at 1/64 of float throughput, and the measured accuracy cost is
+    ~1e-6 relative on forces - orders of magnitude below the Langevin
+    thermostat's per-step noise (see docs/gpu-notes.md, finding 1). The
+    kernels narrow the pair separation to float after the double-precision
+    minimum image and hand r^2 to this evaluator; positions and integration
+    stay double.
+
     r_ij is computed once, at construction, via rsqrt (the original recomputed
     sqrt(r^2) in every eval* method — up to four times per neighbour in the
     force sweep). The window and well reciprocals are precomputed on the host
@@ -41,24 +49,24 @@ class EvaluatorVBC
     public:
     struct param_type
         {
-        Scalar E_r;
-        Scalar E_a;
-        Scalar attr_rcut;
-        Scalar rep_rcut;
-        Scalar density_upper_rcut;
-        Scalar density_lower_rcut;
-        Scalar ncut_ij;
-        Scalar ncut_ji;
-        Scalar use_global_dens;
+        float E_r;
+        float E_a;
+        float attr_rcut;
+        float rep_rcut;
+        float density_upper_rcut;
+        float density_lower_rcut;
+        float ncut_ij;
+        float ncut_ji;
+        float use_global_dens;
 
         // Derived constants, precomputed host-side in setDerived(). They
         // depend only on the radial windows, so the ncut_ij/ncut_ji swap that
         // PotentialValency::setParams applies for transposed type pairs
         // leaves them valid.
-        Scalar re;             // attractive-well centre, (rep_rcut + attr_rcut)/2
-        Scalar inv_well_hw;    // 1 / well half-width = 2/(attr_rcut - rep_rcut)
-        Scalar inv_rep_rcut;   // 1 / rep_rcut
-        Scalar inv_dens_width; // 1 / (density_upper_rcut - density_lower_rcut)
+        float re;             // attractive-well centre, (rep_rcut + attr_rcut)/2
+        float inv_well_hw;    // 1 / well half-width = 2/(attr_rcut - rep_rcut)
+        float inv_rep_rcut;   // 1 / rep_rcut
+        float inv_dens_width; // 1 / (density_upper_rcut - density_lower_rcut)
 
 #ifdef ENABLE_HIP
 
@@ -78,15 +86,15 @@ class EvaluatorVBC
 
         param_type(pybind11::dict v)
             {
-            E_r = v["E_r"].cast<Scalar>();
-            E_a = v["E_a"].cast<Scalar>();
-            attr_rcut = v["attr_rcut"].cast<Scalar>();
-            rep_rcut = v["rep_rcut"].cast<Scalar>();
-            density_upper_rcut = v["density_upper_rcut"].cast<Scalar>();
-            density_lower_rcut = v["density_lower_rcut"].cast<Scalar>();
-            ncut_ij = v["ncut_ij"].cast<Scalar>();
-            ncut_ji = v["ncut_ji"].cast<Scalar>();
-            use_global_dens = v["use_global_dens"].cast<Scalar>();
+            E_r = float(v["E_r"].cast<Scalar>());
+            E_a = float(v["E_a"].cast<Scalar>());
+            attr_rcut = float(v["attr_rcut"].cast<Scalar>());
+            rep_rcut = float(v["rep_rcut"].cast<Scalar>());
+            density_upper_rcut = float(v["density_upper_rcut"].cast<Scalar>());
+            density_lower_rcut = float(v["density_lower_rcut"].cast<Scalar>());
+            ncut_ij = float(v["ncut_ij"].cast<Scalar>());
+            ncut_ji = float(v["ncut_ji"].cast<Scalar>());
+            use_global_dens = float(v["use_global_dens"].cast<Scalar>());
             setDerived();
             }
 
@@ -96,152 +104,145 @@ class EvaluatorVBC
             evaluator's behaviour. */
         void setDerived()
             {
-            re = Scalar(0.5) * (rep_rcut + attr_rcut);
-            inv_well_hw = (attr_rcut > rep_rcut) ? Scalar(2.0) / (attr_rcut - rep_rcut)
-                                                 : Scalar(0.0);
-            inv_rep_rcut
-                = (rep_rcut > Scalar(0.0)) ? Scalar(1.0) / rep_rcut : Scalar(0.0);
+            re = 0.5f * (rep_rcut + attr_rcut);
+            inv_well_hw = (attr_rcut > rep_rcut) ? 2.0f / (attr_rcut - rep_rcut) : 0.0f;
+            inv_rep_rcut = (rep_rcut > 0.0f) ? 1.0f / rep_rcut : 0.0f;
             inv_dens_width = (density_upper_rcut > density_lower_rcut)
-                                 ? Scalar(1.0) / (density_upper_rcut - density_lower_rcut)
-                                 : Scalar(0.0);
+                                 ? 1.0f / (density_upper_rcut - density_lower_rcut)
+                                 : 0.0f;
             }
 
         pybind11::dict asDict()
             {
             pybind11::dict v;
-            v["E_r"] = E_r;
-            v["E_a"] = E_a;
-            v["attr_rcut"] = attr_rcut;
-            v["rep_rcut"] = rep_rcut;
-            v["density_upper_rcut"] = density_upper_rcut;
-            v["density_lower_rcut"] = density_lower_rcut;
-            v["ncut_ij"] = ncut_ij;
-            v["ncut_ji"] = ncut_ji;
-            v["use_global_dens"] = use_global_dens;
+            v["E_r"] = Scalar(E_r);
+            v["E_a"] = Scalar(E_a);
+            v["attr_rcut"] = Scalar(attr_rcut);
+            v["rep_rcut"] = Scalar(rep_rcut);
+            v["density_upper_rcut"] = Scalar(density_upper_rcut);
+            v["density_lower_rcut"] = Scalar(density_lower_rcut);
+            v["ncut_ij"] = Scalar(ncut_ij);
+            v["ncut_ji"] = Scalar(ncut_ji);
+            v["use_global_dens"] = Scalar(use_global_dens);
             return v;
             }
 #endif
-        }
-#if HOOMD_LONGREAL_SIZE == 32
-        __attribute__((aligned(8)));
-#else
-        __attribute__((aligned(16)));
-#endif
+        } __attribute__((aligned(16)));
 
     //! Construct for one pair. Computes r_ij (and 1/r_ij) once.
     /*! The r_sq == 0 guard returns zero force instead of the NaN the original
         produced for exactly overlapping particles. */
     DEVICE EvaluatorVBC(
-        Scalar _rij_sq,
+        float _rij_sq,
         const param_type& _params
         ):
         p(_params)
         {
-        m_rinv = (_rij_sq > Scalar(0.0)) ? fast::rsqrt(_rij_sq) : Scalar(0.0);
+        m_rinv = (_rij_sq > 0.0f) ? fast::rsqrt(_rij_sq) : 0.0f;
         m_rij = _rij_sq * m_rinv;
         }
 
-    DEVICE static Scalar sq(Scalar x)
+    DEVICE static float sq(float x)
         {
         return x * x;
         }
 
     //! 1/r_ij for the kernels' force normalisation (0 for coincident pairs).
-    DEVICE Scalar rinv() const
+    DEVICE float rinv() const
         {
         return m_rinv;
         }
 
     //! Density weight w(r): 1 below the window, quartic ease to 0 across it.
-    DEVICE void evalPhi(Scalar& phi)
+    DEVICE void evalPhi(float& phi)
         {
         if (m_rij <= p.density_lower_rcut)
             {
-            phi += Scalar(1.0);
+            phi += 1.0f;
             }
         else if (m_rij >= p.density_upper_rcut)
             {
-            phi += Scalar(0.0);
+            phi += 0.0f;
             }
         else
             {
-            phi += sq(Scalar(1.0)
+            phi += sq(1.0f
                       - sq((m_rij - p.density_lower_rcut) * p.inv_dens_width));
             }
         }
 
     //! dw/dr, nonzero only inside the density window.
-    DEVICE void evalPhiDiv(Scalar& phi)
+    DEVICE void evalPhiDiv(float& phi)
         {
         if (m_rij > p.density_lower_rcut && m_rij < p.density_upper_rcut)
             {
-            Scalar t = (m_rij - p.density_lower_rcut) * p.inv_dens_width;
-            phi += Scalar(-4.0) * t * (Scalar(1.0) - t * t) * p.inv_dens_width;
+            float t = (m_rij - p.density_lower_rcut) * p.inv_dens_width;
+            phi += -4.0f * t * (1.0f - t * t) * p.inv_dens_width;
             }
         }
 
     //! Valency gate g(n; ncut): 1 below the cap, quartic ease to 0 on [ncut, ncut+1].
-    DEVICE static Scalar gate(Scalar n, Scalar ncut)
+    DEVICE static float gate(float n, float ncut)
         {
-        Scalar t = n - ncut;
-        if (t <= Scalar(0.0))
-            return Scalar(1.0);
-        if (t >= Scalar(1.0))
-            return Scalar(0.0);
-        return sq(Scalar(1.0) - t * t);
+        float t = n - ncut;
+        if (t <= 0.0f)
+            return 1.0f;
+        if (t >= 1.0f)
+            return 0.0f;
+        return sq(1.0f - t * t);
         }
 
     //! dg/dn, nonzero only inside the gate ramp.
-    DEVICE static Scalar gateDeriv(Scalar n, Scalar ncut)
+    DEVICE static float gateDeriv(float n, float ncut)
         {
-        Scalar t = n - ncut;
-        if (t <= Scalar(0.0) || t >= Scalar(1.0))
-            return Scalar(0.0);
-        return Scalar(-4.0) * t * (Scalar(1.0) - t * t);
+        float t = n - ncut;
+        if (t <= 0.0f || t >= 1.0f)
+            return 0.0f;
+        return -4.0f * t * (1.0f - t * t);
         }
 
     //! Density argument selection: per-type or total, per the pair's use_global_dens.
-    DEVICE Scalar pickPhi(Scalar phi_typed, Scalar phi_total) const
+    DEVICE float pickPhi(float phi_typed, float phi_total) const
         {
-        return (p.use_global_dens != Scalar(0.0)) ? phi_total : phi_typed;
+        return (p.use_global_dens != 0.0f) ? phi_total : phi_typed;
         }
 
-    DEVICE void evalOmega(Scalar& W, Scalar phi, Scalar phi_global)
+    DEVICE void evalOmega(float& W, float phi, float phi_global)
         {
         W += gate(pickPhi(phi, phi_global), p.ncut_ij);
         }
 
-    DEVICE void evalOmegaji(Scalar& W, Scalar phi, Scalar phi_global)
+    DEVICE void evalOmegaji(float& W, float phi, float phi_global)
         {
         W += gate(pickPhi(phi, phi_global), p.ncut_ji);
         }
 
-    DEVICE void evalOmegaDiv(Scalar& W, Scalar phi, Scalar phi_global)
+    DEVICE void evalOmegaDiv(float& W, float phi, float phi_global)
         {
         W += gateDeriv(pickPhi(phi, phi_global), p.ncut_ij);
         }
 
     //! Attractive well V_a and dV_a/dr; both zero outside (rep_rcut, attr_rcut).
-    DEVICE void evalAttractive(Scalar& attr_eng, Scalar& attr_eng_div)
+    DEVICE void evalAttractive(float& attr_eng, float& attr_eng_div)
         {
         if (m_rij > p.rep_rcut && m_rij < p.attr_rcut)
             {
-            Scalar t = (m_rij - p.re) * p.inv_well_hw;
-            Scalar u = Scalar(1.0) - t * t;
+            float t = (m_rij - p.re) * p.inv_well_hw;
+            float u = 1.0f - t * t;
             attr_eng += p.E_a * u * u;
-            attr_eng_div += Scalar(-4.0) * p.E_a * t * u * p.inv_well_hw;
+            attr_eng_div += -4.0f * p.E_a * t * u * p.inv_well_hw;
             }
         }
 
     //! Repulsive core V_r and dV_r/dr; both zero at and beyond rep_rcut.
-    DEVICE void evalRepulsive(Scalar& rep_eng, Scalar& rep_eng_div)
+    DEVICE void evalRepulsive(float& rep_eng, float& rep_eng_div)
         {
         if (m_rij < p.rep_rcut)
             {
-            Scalar t = m_rij * p.inv_rep_rcut;
-            Scalar u = Scalar(1.0) - t * t;
+            float t = m_rij * p.inv_rep_rcut;
+            float u = 1.0f - t * t;
             rep_eng += p.E_r * u * u;
-            rep_eng_div += Scalar(-4.0) * p.E_r * t * u * p.inv_rep_rcut;
+            rep_eng_div += -4.0f * p.E_r * t * u * p.inv_rep_rcut;
             }
         }
 
@@ -255,8 +256,8 @@ class EvaluatorVBC
 
     protected:
     const param_type& p;
-    Scalar m_rij;
-    Scalar m_rinv;
+    float m_rij;
+    float m_rinv;
     };
 
     }

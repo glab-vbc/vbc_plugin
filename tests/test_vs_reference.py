@@ -6,12 +6,8 @@
 Static checks compare per-particle energies, forces, and virials computed by
 the plugin (CPU and GPU backends) against ``vbc_reference.py`` across three
 parameter regimes; dynamics smoke tests check NVE conservation and CPU-vs-GPU
-statistical agreement under Langevin dynamics.
-
-The two xfail markers document known gaps that later commits fix:
-- the virial is allocated but never written (finding 5 of docs/gpu-notes.md);
-- GPU forces vary at rounding level run-to-run because atomic accumulation
-  order is nondeterministic (finding 3).
+statistical agreement under Langevin dynamics. GPU determinism is asserted
+bitwise (the sweeps are atomic-free).
 """
 import numpy as np
 import pytest
@@ -23,10 +19,11 @@ from conftest import (attach_vbc, compute_static, make_snapshot, norm_err,
 from vbc_reference import CONFIGS
 
 # Tolerances for the plugin-vs-reference comparisons (normalised inf-norm).
-# The force math currently runs in double precision; these flip to the float32
-# values (~1e-6 / 5e-4) in the commit that narrows the pair math to float.
-TOL = 1e-10
-NET_FORCE_TOL = 1e-9
+# The per-pair math runs in float32 (separations are narrowed after the double
+# minimum image), so agreement with the float64 reference is limited by float
+# rounding: measured ~1e-6 on forces across the three regimes.
+TOL = 1e-5
+NET_FORCE_TOL = 5e-4
 
 DEVICES = ['cpu', 'gpu']
 
@@ -60,9 +57,8 @@ def test_net_force_vanishes(request, config_name, device_kind):
 
 @pytest.mark.parametrize('device_kind', DEVICES)
 @pytest.mark.parametrize('config_name', list(CONFIGS))
-@pytest.mark.xfail(strict=True,
-                   reason='finding 5: the virial is allocated but never written')
 def test_virial_vs_reference(request, config_name, device_kind):
+    """The virial must match the reference: pressures now include this force."""
     E, F, V = compute_static(_device(request, device_kind), config_name)
     E_ref, F_ref, V_ref = reference_static(config_name)
     assert norm_err(V, V_ref) < TOL
@@ -85,6 +81,7 @@ def test_cpu_vs_gpu(request, config_name):
     E_g, F_g, V_g = compute_static(request.getfixturevalue('gpu_device'), config_name)
     assert norm_err(E_c, E_g) < TOL
     assert norm_err(F_c, F_g) < TOL
+    assert norm_err(V_c, V_g) < TOL
 
 
 def test_nve_conservation(gpu_device):

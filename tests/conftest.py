@@ -3,6 +3,7 @@
 
 """Shared fixtures and helpers for the vbc_plugin test suite."""
 import inspect
+import zlib
 
 import numpy as np
 import pytest
@@ -45,7 +46,9 @@ def make_snapshot(config_name, seed=None):
     seed so identical inputs can be rebuilt in any environment or process."""
     types, pair_params, sz = CONFIGS[config_name]()
     L = (sz['N'] / sz['rho']) ** (1 / 3)
-    rng = np.random.default_rng(hash(config_name) % 2 ** 31 if seed is None else seed)
+    # crc32, not hash(): python string hashing is salted per process, and these
+    # positions must be reproducible across processes and environments.
+    rng = np.random.default_rng(zlib.crc32(config_name.encode()) if seed is None else seed)
     snap = hoomd.Snapshot()
     snap.particles.N = sz['N']
     snap.particles.types = list(types)

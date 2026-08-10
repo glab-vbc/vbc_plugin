@@ -68,6 +68,7 @@ template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uin
     {
 
     this->m_nlist->compute(timestep);
+    this->checkSupported();
 
     bool third_law = this->m_nlist->getStorageMode() == NeighborList::half;
     if (third_law)
@@ -100,8 +101,8 @@ template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uin
 
     ArrayHandle<Scalar4> d_force(this->m_force, access_location::device, access_mode::overwrite);
     ArrayHandle<Scalar> d_virial(this->m_virial, access_location::device, access_mode::overwrite);
-    ArrayHandle<Scalar> d_phi_ab_arr(this->m_phi_ab_arr, access_location::device, access_mode::overwrite);
-    ArrayHandle<Scalar> d_s_ab_arr(this->m_s_ab_arr, access_location::device, access_mode::overwrite);
+    ArrayHandle<float> d_phi_ab_arr(this->m_phi_ab_arr, access_location::device, access_mode::overwrite);
+    ArrayHandle<float> d_s_ab_arr(this->m_s_ab_arr, access_location::device, access_mode::overwrite);
 
     PDataFlags flags = this->m_pdata->getFlags();
     bool compute_virial = flags[pdata_flag::pressure_tensor];

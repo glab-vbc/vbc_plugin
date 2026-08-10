@@ -83,6 +83,11 @@ For the full energy definition, the base soft-core potential, the switching func
 per-type and global neighbour densities, and the valency gate,
 see [`docs/potential.md`](docs/potential.md).
 
+For how the force is computed on the GPU — the three atomic-free sweeps, the
+float32 precision choice and its measured accuracy, and the 2026 performance
+overhaul (~130x on the force kernels on an RTX 4090) — see
+[`docs/gpu-notes.md`](docs/gpu-notes.md).
+
 ## Usage
 
 Attach a `VBC` force to a neighbour list, then set `params` for each unordered type
