@@ -16,6 +16,8 @@
 #include "hoomd/HOOMDMath.h"
 #include "hoomd/Index1D.h"
 
+#include "HoomdCompat.h"
+
 #ifdef __HIPCC__
 #error This header cannot be compiled by nvcc
 #endif
@@ -85,7 +87,7 @@ template<class evaluator> class PYBIND11_EXPORT PotentialValency : public hoomd:
 
     bool m_attached = true;
 
-    std::shared_ptr<GlobalArray<Scalar>> m_r_cut_nlist;
+    std::shared_ptr<VBCRCutArray<Scalar>> m_r_cut_nlist;
 
     GPUArray<Scalar> m_phi_ab_arr;
 
@@ -113,7 +115,7 @@ PotentialValency<evaluator>::PotentialValency(std::shared_ptr<SystemDefinition> 
     m_params.swap(params);
 
     m_r_cut_nlist
-        = std::make_shared<GlobalArray<Scalar>>(m_typpair_idx.getNumElements(), m_exec_conf);
+        = std::make_shared<VBCRCutArray<Scalar>>(m_typpair_idx.getNumElements(), m_exec_conf);
     nlist->addRCutMatrix(m_r_cut_nlist);
 
     GPUArray<Scalar> phi_ab_arr((m_pdata->getN()+m_pdata->getNGhosts()) * (m_pdata->getNTypes() + 1), this->m_exec_conf);

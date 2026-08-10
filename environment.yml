@@ -17,7 +17,7 @@
 #   module load gcc/10.3.0 cuda/12.2.0
 #
 # Versions after "# tested" are the known-good point this was last built against
-# (Python 3.13, HOOMD 4.8.2).
+# (Python 3.12, HOOMD 5.1.0).
 
 name: vbc_plugin
 
@@ -26,7 +26,7 @@ channels:
 
 dependencies:
   # --- build toolchain ---
-  - python=3.13
+  - python=3.12
   - cmake>=3.28        # tested 3.31.5
   - eigen=3.4          # HOOMD's build expects the Eigen3 CMake package; tested 3.4.0
   - pybind11>=2.12     # tested 2.13.6 — must match the pybind11 HOOMD was built with

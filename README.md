@@ -15,7 +15,8 @@ particle has saturated its valency, no extra neighbours can be added to the attr
 ## Installation
 
 `vbc_plugin` is a compiled component that builds against an existing
-HOOMD-blue >= 4.8.0 install (tested 4.8.2), compiled with the C++/CUDA
+HOOMD-blue >= 4.8.0 install (tested 5.1.0 GPU, 5.3.1/7.1.0 CPU; 4.8
+best-effort), compiled with the C++/CUDA
 toolchain you run on. Building HOOMD is out of scope here, see
 [`docs/building.md`](docs/building.md) and the
 [official HOOMD build guide](https://github.com/glotzerlab/hoomd-blue/blob/trunk-patch/BUILDING.rst).
