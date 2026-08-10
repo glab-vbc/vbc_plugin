@@ -91,6 +91,9 @@ template<class evaluator> class PYBIND11_EXPORT PotentialValency : public hoomd:
 
     GPUArray<Scalar> m_phi_ab_arr;
 
+    //! Many-body chain-rule sums S, same per-particle row layout as m_phi_ab_arr.
+    GPUArray<Scalar> m_s_ab_arr;
+
     std::vector<Scalar> m_cum_dens_ab;
 
     virtual void computeForces(uint64_t timestep);
@@ -120,6 +123,8 @@ PotentialValency<evaluator>::PotentialValency(std::shared_ptr<SystemDefinition> 
 
     GPUArray<Scalar> phi_ab_arr((m_pdata->getN()+m_pdata->getNGhosts()) * (m_pdata->getNTypes() + 1), this->m_exec_conf);
     m_phi_ab_arr.swap(phi_ab_arr);
+    GPUArray<Scalar> s_ab_arr((m_pdata->getN()+m_pdata->getNGhosts()) * (m_pdata->getNTypes() + 1), this->m_exec_conf);
+    m_s_ab_arr.swap(s_ab_arr);
 
     }
 

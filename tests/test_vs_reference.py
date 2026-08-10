@@ -69,9 +69,8 @@ def test_virial_vs_reference(request, config_name, device_kind):
 
 
 @pytest.mark.parametrize('config_name', list(CONFIGS))
-@pytest.mark.xfail(strict=False,
-                   reason='finding 3: atomic accumulation order varies run to run')
 def test_gpu_bitwise_deterministic(request, config_name):
+    """With no atomics, identical inputs must give bit-identical forces."""
     device = request.getfixturevalue('gpu_device')
     E1, F1, V1 = compute_static(device, config_name)
     E2, F2, V2 = compute_static(device, config_name)
