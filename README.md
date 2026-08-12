@@ -4,6 +4,30 @@
 
 A valency-bounding correction to a pair potential for [HOOMD-blue](https://github.com/glotzerlab/hoomd-blue).
 
+<p align="center">
+Standard valency-bounding correction in a quasi-two-dimensional slab of one hundred particles. Each column is a valency and each row is a number density. Particles are coloured by how many neighbours they bind.
+</p>
+
+<table align="center">
+  <tr>
+    <th></th><th>valency 2</th><th>valency 3</th><th>valency 4</th><th>valency 5</th>
+  </tr>
+  <tr>
+    <td align="center">low density</td>
+    <td><img src="docs/media/banner_v2_low.gif" width="150" alt="valency 2 low density"></td>
+    <td><img src="docs/media/banner_v3_low.gif" width="150" alt="valency 3 low density"></td>
+    <td><img src="docs/media/banner_v4_low.gif" width="150" alt="valency 4 low density"></td>
+    <td><img src="docs/media/banner_v5_low.gif" width="150" alt="valency 5 low density"></td>
+  </tr>
+  <tr>
+    <td align="center">high density</td>
+    <td><img src="docs/media/banner_v2_high.gif" width="150" alt="valency 2 high density"></td>
+    <td><img src="docs/media/banner_v3_high.gif" width="150" alt="valency 3 high density"></td>
+    <td><img src="docs/media/banner_v4_high.gif" width="150" alt="valency 4 high density"></td>
+    <td><img src="docs/media/banner_v5_high.gif" width="150" alt="valency 5 high density"></td>
+  </tr>
+</table>
+
 `vbc_plugin` adds a many-body force to HOOMD-blue's molecular-dynamics engine,
 implemented as a correction to a potential with a soft repulsive core and short-range
 attraction.
