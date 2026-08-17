@@ -5,7 +5,7 @@
 A valency-bounding correction to a pair potential for [HOOMD-blue](https://github.com/glotzerlab/hoomd-blue).
 
 <p align="center">
-Standard valency-bounding correction in a quasi-two-dimensional slab of one hundred particles. Each column is a valency and each row is a number density. Particles are coloured by how many neighbours they bind.
+Standard valency-bounding correction in two dimensions with one hundred particles. Each column is a valency and each row is a number density. Particles are coloured by how many neighbours they bind.
 </p>
 
 <table align="center">
