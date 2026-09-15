@@ -101,6 +101,7 @@ template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uin
     ArrayHandle<Scalar4> d_force(this->m_force, access_location::device, access_mode::overwrite);
     ArrayHandle<Scalar> d_virial(this->m_virial, access_location::device, access_mode::overwrite);
     ArrayHandle<Scalar> d_phi_ab_arr(this->m_phi_ab_arr, access_location::device, access_mode::overwrite);
+    ArrayHandle<Scalar> d_s_ab_arr(this->m_s_ab_arr, access_location::device, access_mode::overwrite);
 
     PDataFlags flags = this->m_pdata->getFlags();
     bool compute_virial = flags[pdata_flag::pressure_tensor];
@@ -119,6 +120,7 @@ template<class evaluator> void PotentialValencyGPU<evaluator>::computeForces(uin
                                compute_virial,
                                d_pos.data,
                                d_phi_ab_arr.data,
+                               d_s_ab_arr.data,
                                box,
                                d_n_neigh.data,
                                d_nlist.data,

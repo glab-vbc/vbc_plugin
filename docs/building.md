@@ -6,8 +6,11 @@ HOOMD-blue installation, building the plugin is three CMake commands.
 ## Prerequisite, a working HOOMD-blue build
 
 The plugin links against HOOMD's compiled libraries, so you need
-HOOMD-blue >= 4.8.0 (tested 4.8.2) already built and installed, and built
-with the C++/CUDA toolchain you intend to run on. For GPU support that means a
+HOOMD-blue >= 4.8.0 already built and installed, and built
+with the C++/CUDA toolchain you intend to run on. Tested against stock
+HOOMD-blue 5.1.0 (GPU) and 5.3.1 / 7.1.0 (CPU); 4.8.x is supported
+best-effort through a small compatibility shim (`src/HoomdCompat.h`) and is
+currently untested. For GPU support that means a
 CUDA build compiled against your target CUDA and driver. Building HOOMD is
 outside the scope of this guide. Follow the
 [official HOOMD build guide](https://github.com/glotzerlab/hoomd-blue/blob/trunk-patch/BUILDING.rst).
@@ -57,11 +60,20 @@ For a clean rebuild, remove the build directory first with `rm -rf build`.
 
 ## How CMake finds HOOMD
 
-`CMakeLists.txt` calls `find_package(HOOMD 4.8.0 REQUIRED)`. HOOMD installs its
-CMake package under `$CONDA_PREFIX/lib64/cmake/hoomd/`, a standard search
-location, so pointing `CMAKE_PREFIX_PATH` at `$CONDA_PREFIX`, which the preset
-does, resolves it. The install prefix is HOOMD's own, so the compiled module
-lands next to HOOMD at `.../site-packages/hoomd/vbc_plugin/`.
+`CMakeLists.txt` calls `find_package(HOOMD REQUIRED)` and checks
+`HOOMD_VERSION >= 4.8.0` by hand (HOOMD's package config declares
+SameMajorVersion compatibility, so requesting 4.8.0 through `find_package`
+would reject a 5.x/6.x/7.x install). HOOMD installs its CMake package under
+`$CONDA_PREFIX/lib64/cmake/hoomd/`, a standard search location, so pointing
+`CMAKE_PREFIX_PATH` at `$CONDA_PREFIX`, which the preset does, resolves it. The
+install prefix is HOOMD's own, so the compiled module lands next to HOOMD at
+`.../site-packages/hoomd/vbc_plugin/`.
+
+One CUDA note: HOOMD's package config overwrites `CMAKE_CUDA_ARCHITECTURES`
+with its own list, silently ignoring a `-DCMAKE_CUDA_ARCHITECTURES=...` you
+pass on the command line. To build for a specific GPU architecture (much faster
+compiles during development), use the plugin's own knob instead, e.g.
+`-DVBC_CUDA_ARCHITECTURES=89-real` for an RTX 4090.
 
 ## Verify
 

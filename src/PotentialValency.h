@@ -16,6 +16,8 @@
 #include "hoomd/HOOMDMath.h"
 #include "hoomd/Index1D.h"
 
+#include "HoomdCompat.h"
+
 #ifdef __HIPCC__
 #error This header cannot be compiled by nvcc
 #endif
@@ -85,11 +87,12 @@ template<class evaluator> class PYBIND11_EXPORT PotentialValency : public hoomd:
 
     bool m_attached = true;
 
-    std::shared_ptr<GlobalArray<Scalar>> m_r_cut_nlist;
+    std::shared_ptr<VBCRCutArray<Scalar>> m_r_cut_nlist;
 
     GPUArray<Scalar> m_phi_ab_arr;
 
-    std::vector<Scalar> m_cum_dens_ab;
+    //! Many-body chain-rule sums S, same per-particle row layout as m_phi_ab_arr.
+    GPUArray<Scalar> m_s_ab_arr;
 
     virtual void computeForces(uint64_t timestep);
     };
@@ -97,9 +100,7 @@ template<class evaluator> class PYBIND11_EXPORT PotentialValency : public hoomd:
 template<class evaluator>
 PotentialValency<evaluator>::PotentialValency(std::shared_ptr<SystemDefinition> sysdef,
                                               std::shared_ptr<NeighborList> nlist)
-    : hoomd::ForceCompute(sysdef), m_nlist(nlist), m_typpair_idx(m_pdata->getNTypes()),
-
-      m_cum_dens_ab(m_pdata->getNTypes())
+    : hoomd::ForceCompute(sysdef), m_nlist(nlist), m_typpair_idx(m_pdata->getNTypes())
     {
 
     this->m_exec_conf->msg->notice(5) << "Constructing PotentialValency" << std::endl;
@@ -113,11 +114,13 @@ PotentialValency<evaluator>::PotentialValency(std::shared_ptr<SystemDefinition> 
     m_params.swap(params);
 
     m_r_cut_nlist
-        = std::make_shared<GlobalArray<Scalar>>(m_typpair_idx.getNumElements(), m_exec_conf);
+        = std::make_shared<VBCRCutArray<Scalar>>(m_typpair_idx.getNumElements(), m_exec_conf);
     nlist->addRCutMatrix(m_r_cut_nlist);
 
     GPUArray<Scalar> phi_ab_arr((m_pdata->getN()+m_pdata->getNGhosts()) * (m_pdata->getNTypes() + 1), this->m_exec_conf);
     m_phi_ab_arr.swap(phi_ab_arr);
+    GPUArray<Scalar> s_ab_arr((m_pdata->getN()+m_pdata->getNGhosts()) * (m_pdata->getNTypes() + 1), this->m_exec_conf);
+    m_s_ab_arr.swap(s_ab_arr);
 
     }
 
@@ -236,6 +239,9 @@ template<class evaluator> Scalar PotentialValency<evaluator>::getRCut(pybind11::
     return sqrt(h_rcutsq.data[m_typpair_idx(typ1, typ2)]);
     }
 
+/*! CPU path, structured identically to the GPU kernels: a density sweep, an S
+    sweep, then a one-sided force sweep that reads the phi and S rows of both
+    pair partners - so the two backends can be compared term by term. */
 template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64_t timestep)
     {
 
@@ -266,154 +272,132 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
 
     ArrayHandle<Scalar4> h_force(m_force, access_location::host, access_mode::overwrite);
     ArrayHandle<Scalar> h_virial(m_virial, access_location::host, access_mode::overwrite);
-    ArrayHandle<Scalar> h_phi_ab_arr(m_phi_ab_arr, access_location::host, access_mode::overwrite);
-
-    PDataFlags flags = this->m_pdata->getFlags();
-    bool compute_virial = flags[pdata_flag::pressure_tensor];
+    ArrayHandle<Scalar> h_phi(m_phi_ab_arr, access_location::host, access_mode::overwrite);
+    ArrayHandle<Scalar> h_s(m_s_ab_arr, access_location::host, access_mode::overwrite);
 
     const BoxDim box = m_pdata->getBox();
     ArrayHandle<Scalar> h_rcutsq(m_rcutsq, access_location::host, access_mode::read);
     ArrayHandle<param_type> h_params(m_params, access_location::host, access_mode::read);
 
-    memset(h_force.data, 0, sizeof(Scalar4) * (m_pdata->getN() + m_pdata->getNGhosts()));
+    // Forces, phi, and S are overwritten below; only the virial still needs
+    // zeroing (nothing writes it yet).
     memset(h_virial.data, 0, sizeof(Scalar) * 6 * m_virial_pitch);
 
-    memset(h_phi_ab_arr.data, 0, sizeof(Scalar) * (m_pdata->getN() + m_pdata->getNGhosts()) * (m_pdata->getNTypes() + 1));
+    const unsigned int N = m_pdata->getN();
+    const unsigned int ntypes = m_pdata->getNTypes();
+    const unsigned int row = ntypes + 1;
 
-    unsigned int ntypes = m_pdata->getNTypes();
-
-    for (int i = 0; i < (int)m_pdata->getN(); i++)
+    // Sweep 1: per-type smooth neighbour counts (densities).
+    for (unsigned int i = 0; i < N; i++)
         {
-
         Scalar3 posi = make_scalar3(h_pos.data[i].x, h_pos.data[i].y, h_pos.data[i].z);
-        unsigned int typei = __scalar_as_int(h_pos.data[i].w);
+        const unsigned int typei = __scalar_as_int(h_pos.data[i].w);
         const size_t head_i = h_head_list.data[i];
 
-        assert(typei < m_pdata->getNTypes());
+        for (unsigned int b = 0; b < row; ++b)
+            h_phi.data[i * row + b] = Scalar(0.0);
 
-        const unsigned int size = (unsigned int)h_n_neigh.data[i];
-
-        Scalar gsum = Scalar(0.0);
-        if (evaluator::hasPerParticleEnergy())
+        Scalar total = Scalar(0.0);
+        for (unsigned int j = 0; j < h_n_neigh.data[i]; j++)
             {
-            for (unsigned int j = 0; j < size; j++)
-                {
-
-                unsigned int jj = h_nlist.data[head_i + j];
-                assert(jj < m_pdata->getN() + m_pdata->getNGhosts());
-
-                Scalar3 posj
-                    = make_scalar3(h_pos.data[jj].x, h_pos.data[jj].y, h_pos.data[jj].z);
-                unsigned int typej = __scalar_as_int(h_pos.data[jj].w);
-                assert(typej < m_pdata->getNTypes());
-
-                Scalar3 dxij = posi - posj;
-
-                dxij = box.minImage(dxij);
-
-                Scalar rij_sq = dot(dxij, dxij);
-
-                unsigned int typpair_idx = m_typpair_idx(typei, typej);
-                const param_type& param = h_params.data[typpair_idx];
-                Scalar rcutsq = h_rcutsq.data[typpair_idx];
-
-                evaluator eval(rij_sq, param);
-                Scalar phi_contrib = Scalar(0.0);
-                eval.evalPhi(phi_contrib);
-                h_phi_ab_arr.data[i * (ntypes + 1) + typej] += phi_contrib;
-                gsum += phi_contrib;
-                }
-            }
-
-        h_phi_ab_arr.data[i * (ntypes + 1) + ntypes] = gsum;
-
-        }
-
-    for (int i = 0; i < (int)m_pdata->getN(); i++)
-        {
-
-        Scalar3 posi = make_scalar3(h_pos.data[i].x, h_pos.data[i].y, h_pos.data[i].z);
-        unsigned int typei = __scalar_as_int(h_pos.data[i].w);
-        const size_t head_i = h_head_list.data[i];
-
-        Scalar3 fi = make_scalar3(0.0, 0.0, 0.0);
-        Scalar pei = 0.0;
-
-        const unsigned int size = (unsigned int)h_n_neigh.data[i];
-
-        Scalar phi_ab_i_sum = h_phi_ab_arr.data[i * (ntypes + 1) + ntypes];
-
-        for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
-            {
-            m_cum_dens_ab[typ_b] = Scalar(0.0);
-            }
-        Scalar m_cum_dens_ab_sum = 0.0;
-        for (unsigned int j = 0; j < size; j++)
-            {
-            unsigned int jj = h_nlist.data[head_i + j];
+            const unsigned int jj = h_nlist.data[head_i + j];
             assert(jj < m_pdata->getN() + m_pdata->getNGhosts());
 
             Scalar3 posj = make_scalar3(h_pos.data[jj].x, h_pos.data[jj].y, h_pos.data[jj].z);
-            unsigned int typej = __scalar_as_int(h_pos.data[jj].w);
-            assert(typej < m_pdata->getNTypes());
+            const unsigned int typej = __scalar_as_int(h_pos.data[jj].w);
+            const unsigned int typpair = m_typpair_idx(typei, typej);
 
-            Scalar3 dxij = posi - posj;
-
-            dxij = box.minImage(dxij);
-
+            Scalar3 dxij = box.minImage(posi - posj);
             Scalar rij_sq = dot(dxij, dxij);
-            Scalar rij_abs = fast::sqrt(rij_sq);
+            if (rij_sq >= h_rcutsq.data[typpair])
+                continue;
 
-            unsigned int typpair_idx = m_typpair_idx(typei, typej);
-            const param_type& param = h_params.data[typpair_idx];
-            Scalar rcutsq = h_rcutsq.data[typpair_idx];
+            evaluator eval(rij_sq, h_params.data[typpair]);
+            Scalar local_phi = Scalar(0.0);
+            eval.evalPhi(local_phi);
+            h_phi.data[i * row + typej] += local_phi;
+            total += local_phi;
+            }
+        h_phi.data[i * row + ntypes] = total;
+        }
 
-            evaluator evalij(rij_sq, param);
+    // Sweep 2: many-body chain-rule sums S (the old per-particle scratch
+    // m_cum_dens_ab, now stored for every particle so sweep 3 can read the
+    // partner's row).
+    for (unsigned int i = 0; i < N; i++)
+        {
+        Scalar3 posi = make_scalar3(h_pos.data[i].x, h_pos.data[i].y, h_pos.data[i].z);
+        const unsigned int typei = __scalar_as_int(h_pos.data[i].w);
+        const size_t head_i = h_head_list.data[i];
+        const Scalar phi_i_total = h_phi.data[i * row + ntypes];
+
+        for (unsigned int b = 0; b < row; ++b)
+            h_s.data[i * row + b] = Scalar(0.0);
+
+        Scalar total = Scalar(0.0);
+        for (unsigned int j = 0; j < h_n_neigh.data[i]; j++)
+            {
+            const unsigned int jj = h_nlist.data[head_i + j];
+            Scalar3 posj = make_scalar3(h_pos.data[jj].x, h_pos.data[jj].y, h_pos.data[jj].z);
+            const unsigned int typej = __scalar_as_int(h_pos.data[jj].w);
+            const unsigned int typpair = m_typpair_idx(typei, typej);
+
+            Scalar3 dxij = box.minImage(posi - posj);
+            Scalar rij_sq = dot(dxij, dxij);
+            if (rij_sq >= h_rcutsq.data[typpair])
+                continue;
+
+            evaluator evalij(rij_sq, h_params.data[typpair]);
+
+            Scalar W1_div = Scalar(0.0);
+            evalij.evalOmegaDiv(W1_div, h_phi.data[i * row + typej], phi_i_total);
+            if (W1_div == Scalar(0.0))
+                continue;
 
             Scalar attr_eng = Scalar(0.0);
             Scalar attr_eng_div = Scalar(0.0);
             evalij.evalAttractive(attr_eng, attr_eng_div);
+            if (attr_eng == Scalar(0.0))
+                continue;
 
-            Scalar phi_ab_j_sum = h_phi_ab_arr.data[jj * (ntypes + 1) + ntypes];
-
-            Scalar W1_div = Scalar(0.0);
             Scalar W2 = Scalar(0.0);
-            evalij.evalOmegaDiv(W1_div, h_phi_ab_arr.data[i * (ntypes + 1) + typej], phi_ab_i_sum);
-            evalij.evalOmegaji(W2, h_phi_ab_arr.data[jj * (ntypes + 1) + typei], phi_ab_j_sum);
+            evalij.evalOmegaji(W2, h_phi.data[jj * row + typei],
+                               h_phi.data[jj * row + ntypes]);
 
-            m_cum_dens_ab[typej] += W1_div * W2 * attr_eng;
-
-            m_cum_dens_ab_sum += W1_div * W2 * attr_eng;
+            const Scalar contrib = W1_div * W2 * attr_eng;
+            h_s.data[i * row + typej] += contrib;
+            total += contrib;
             }
+        h_s.data[i * row + ntypes] = total;
+        }
 
-        for (unsigned int j = 0; j < size; j++)
+    // Sweep 3: one-sided forces and per-particle energies. Each particle
+    // accumulates its complete force; nothing is scattered to the partner.
+    for (unsigned int i = 0; i < N; i++)
+        {
+        Scalar3 posi = make_scalar3(h_pos.data[i].x, h_pos.data[i].y, h_pos.data[i].z);
+        const unsigned int typei = __scalar_as_int(h_pos.data[i].w);
+        const size_t head_i = h_head_list.data[i];
+
+        const Scalar phi_i_total = h_phi.data[i * row + ntypes];
+        const Scalar s_i_total = h_s.data[i * row + ntypes];
+
+        Scalar3 fi = make_scalar3(0.0, 0.0, 0.0);
+        Scalar pei = Scalar(0.0);
+
+        for (unsigned int j = 0; j < h_n_neigh.data[i]; j++)
             {
-
-            unsigned int jj = h_nlist.data[head_i + j];
-            assert(jj < m_pdata->getN() + m_pdata->getNGhosts());
-
+            const unsigned int jj = h_nlist.data[head_i + j];
             Scalar3 posj = make_scalar3(h_pos.data[jj].x, h_pos.data[jj].y, h_pos.data[jj].z);
-            unsigned int typej = __scalar_as_int(h_pos.data[jj].w);
-            assert(typej < m_pdata->getNTypes());
+            const unsigned int typej = __scalar_as_int(h_pos.data[jj].w);
+            const unsigned int typpair = m_typpair_idx(typei, typej);
 
-            Scalar3 fj = make_scalar3(0.0, 0.0, 0.0);
-            Scalar pej = 0.0;
-
-            Scalar3 dxij = posi - posj;
-
-            dxij = box.minImage(dxij);
-
+            Scalar3 dxij = box.minImage(posi - posj);
             Scalar rij_sq = dot(dxij, dxij);
-            Scalar rij_abs = fast::sqrt(rij_sq);
+            if (rij_sq >= h_rcutsq.data[typpair])
+                continue;
 
-            unsigned int typpair_idx = m_typpair_idx(typei, typej);
-            const param_type& param = h_params.data[typpair_idx];
-            Scalar rcutsq = h_rcutsq.data[typpair_idx];
-
-            Scalar force_divr = Scalar(0.0);
-            Scalar potential_eng = Scalar(0.0);
-
-            evaluator evalij(rij_sq, param);
+            evaluator evalij(rij_sq, h_params.data[typpair]);
 
             Scalar rep_eng = Scalar(0.0);
             Scalar rep_eng_div = Scalar(0.0);
@@ -422,46 +406,40 @@ template<class evaluator> void PotentialValency<evaluator>::computeForces(uint64
             evalij.evalRepulsive(rep_eng, rep_eng_div);
             evalij.evalAttractive(attr_eng, attr_eng_div);
 
-            Scalar phi_ab_j_sum = h_phi_ab_arr.data[jj * (ntypes + 1) + ntypes];
+            Scalar W1W2 = Scalar(0.0);
+            if (attr_eng != Scalar(0.0) || attr_eng_div != Scalar(0.0))
+                {
+                Scalar W1 = Scalar(0.0);
+                Scalar W2 = Scalar(0.0);
+                evalij.evalOmega(W1, h_phi.data[i * row + typej], phi_i_total);
+                evalij.evalOmegaji(W2, h_phi.data[jj * row + typei],
+                                   h_phi.data[jj * row + ntypes]);
+                W1W2 = W1 * W2;
+                }
 
-            Scalar W1 = Scalar(0.0);
-            Scalar W2 = Scalar(0.0);
-            evalij.evalOmega(W1, h_phi_ab_arr.data[i * (ntypes + 1) + typej], phi_ab_i_sum);
-            evalij.evalOmegaji(W2, h_phi_ab_arr.data[jj * (ntypes + 1) + typei], phi_ab_j_sum);
-
+            Scalar dedr = rep_eng_div + W1W2 * attr_eng_div;
             Scalar Wrij_div = Scalar(0.0);
             evalij.evalPhiDiv(Wrij_div);
+            if (Wrij_div != Scalar(0.0))
+                {
+                const Scalar s_i = evalij.pickPhi(h_s.data[i * row + typej], s_i_total);
+                const Scalar s_j = evalij.pickPhi(h_s.data[jj * row + typei],
+                                                  h_s.data[jj * row + ntypes]);
+                dedr += Wrij_div * (s_i + s_j);
+                }
 
-            evalij.evalForceij(force_divr,
-                                potential_eng,
-                                rep_eng,
-                                rep_eng_div,
-                                attr_eng,
-                                attr_eng_div,
-                                m_cum_dens_ab[typej],
-                                m_cum_dens_ab_sum,
-                                W1,
-                                W2,
-                                Wrij_div);
+            const Scalar force_divr = -dedr * evalij.rinv();
 
-                fi += Scalar(-1.0) * dxij * (force_divr / rij_abs);
-                pei += Scalar(0.5) * potential_eng;
-
-                fj += dxij * (force_divr / rij_abs);
-                pej += Scalar(0.5) * potential_eng;
-
-                unsigned int mem_idx = jj;
-                h_force.data[mem_idx].x += fj.x;
-                h_force.data[mem_idx].y += fj.y;
-                h_force.data[mem_idx].z += fj.z;
-                h_force.data[mem_idx].w += pej;
+            fi.x += dxij.x * force_divr;
+            fi.y += dxij.y * force_divr;
+            fi.z += dxij.z * force_divr;
+            pei += Scalar(0.5) * (rep_eng + W1W2 * attr_eng);
             }
 
-            unsigned int mem_idx = i;
-            h_force.data[mem_idx].x += fi.x;
-            h_force.data[mem_idx].y += fi.y;
-            h_force.data[mem_idx].z += fi.z;
-            h_force.data[mem_idx].w += pei;
+        h_force.data[i].x = fi.x;
+        h_force.data[i].y = fi.y;
+        h_force.data[i].z = fi.z;
+        h_force.data[i].w = pei;
         }
 
     }

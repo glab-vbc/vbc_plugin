@@ -6,11 +6,26 @@ project(vbc_plugin LANGUAGES C CXX)
 
 set(COMPONENT_NAME vbc_plugin)
 
-# find hoomd first
-find_package(HOOMD 4.8.0 REQUIRED)
+# Find hoomd first. The version is checked by hand rather than through
+# find_package's VERSION argument: HOOMD's package config declares
+# SameMajorVersion compatibility, so asking for 4.8.0 rejects an otherwise
+# usable 5.x/6.x/7.x install.
+find_package(HOOMD REQUIRED)
+
+if (HOOMD_VERSION VERSION_LESS 4.8.0)
+    message(FATAL_ERROR "vbc_plugin requires HOOMD >= 4.8.0, found ${HOOMD_VERSION}")
+endif()
 
 # print where you found it
 message(STATUS "Found HOOMD ${HOOMD_VERSION}: ${HOOMD_INSTALL_PREFIX}/${PYTHON_SITE_INSTALL_DIR}")
+
+# HOOMD's package config plain-set()s CMAKE_CUDA_ARCHITECTURES to its own list,
+# silently overriding a -DCMAKE_CUDA_ARCHITECTURES=... given on the command
+# line. Provide a knob that wins, e.g. -DVBC_CUDA_ARCHITECTURES=89-real for a
+# fast single-architecture development build.
+if (VBC_CUDA_ARCHITECTURES)
+    set(CMAKE_CUDA_ARCHITECTURES ${VBC_CUDA_ARCHITECTURES})
+endif()
 
 # find pybind11, needed for python binding
 find_package(pybind11 REQUIRED)

@@ -11,6 +11,7 @@
 #include "hoomd/WarpTools.cuh"
 #endif
 #include <assert.h>
+#include <climits>
 
 #ifndef __POTENTIAL_VALENCY_GPU_CUH__
 #define __POTENTIAL_VALENCY_GPU_CUH__
@@ -39,6 +40,7 @@ struct valency_args_t
                    bool _compute_virial,
                    const Scalar4* _d_pos,
                    Scalar* _d_phi_ab_arr,
+                   Scalar* _d_s_ab_arr,
                    const BoxDim& _box,
                    const unsigned int* _d_n_neigh,
                    const unsigned int* _d_nlist,
@@ -50,7 +52,8 @@ struct valency_args_t
                    const unsigned int _tpp,
                    const hipDeviceProp_t& _devprop)
         : d_force(_d_force), N(_N), Nghosts(_Nghosts), d_virial(_d_virial),
-          virial_pitch(_virial_pitch), compute_virial(_compute_virial), d_pos(_d_pos), d_phi_ab_arr(_d_phi_ab_arr), box(_box),
+          virial_pitch(_virial_pitch), compute_virial(_compute_virial), d_pos(_d_pos),
+          d_phi_ab_arr(_d_phi_ab_arr), d_s_ab_arr(_d_s_ab_arr), box(_box),
           d_n_neigh(_d_n_neigh), d_nlist(_d_nlist), d_head_list(_d_head_list), d_rcutsq(_d_rcutsq),
           size_nlist(_size_nlist), ntypes(_ntypes), block_size(_block_size), tpp(_tpp),
           devprop(_devprop) {};
@@ -63,6 +66,7 @@ struct valency_args_t
     bool compute_virial;
     const Scalar4* d_pos;
     Scalar* d_phi_ab_arr;
+    Scalar* d_s_ab_arr;
     const BoxDim box;
     const unsigned int*
         d_n_neigh;
@@ -78,53 +82,52 @@ struct valency_args_t
 
 #ifdef __HIPCC__
 
-#if HOOMD_LONGREAL_SIZE == 64
-
-#if (__CUDA_ARCH__ < 600)
-
-__device__ inline double myAtomicAdd(double* address, double val)
+//! Cooperatively stage the per-type-pair params and rcutsq into shared memory.
+/*! Must be executed by every thread of the block (call before any early
+    return) and followed by __syncthreads() at the call site. */
+template<class evaluator>
+__device__ inline void stage_params(const typename evaluator::param_type* d_params,
+                                    const Scalar* d_rcutsq,
+                                    typename evaluator::param_type* s_params,
+                                    Scalar* s_rcutsq,
+                                    const unsigned int num_typ_parameters)
     {
-    unsigned long long int* address_as_ull = (unsigned long long int*)address;
-    unsigned long long int old = *address_as_ull, assumed;
-
-    do
+    for (unsigned int cur_offset = 0; cur_offset < num_typ_parameters; cur_offset += blockDim.x)
         {
-        assumed = old;
-        old = atomicCAS(address_as_ull,
-                        assumed,
-                        __double_as_longlong(val + __longlong_as_double(assumed)));
-        } while (assumed != old);
-
-    return __longlong_as_double(old);
+        if (cur_offset + threadIdx.x < num_typ_parameters)
+            {
+            s_rcutsq[cur_offset + threadIdx.x] = d_rcutsq[cur_offset + threadIdx.x];
+            s_params[cur_offset + threadIdx.x] = d_params[cur_offset + threadIdx.x];
+            }
+        }
     }
-#else
-__device__ inline double myAtomicAdd(double* address, double val)
-    {
-    return atomicAdd(address, val);
-    }
-#endif
-#endif
 
-#ifdef __HIP_PLATFORM_HCC__
-__device__ inline float myAtomicAdd(float* address, float val)
+//! Warp-reduce the per-type tallies of one particle's thread team and store its row.
+/*! Each thread owns slab slots [threadIdx.x*ntypes, (threadIdx.x+1)*ntypes);
+    the tpp threads of a particle's team hold partial per-type sums. Each type
+    is summed across the team with register shuffles (no shared-memory traffic,
+    no atomics) and the team leader writes the row
+    d_out[idx*(ntypes+1) + typ_b] plus the type-summed total in the last slot. */
+template<int tpp>
+__device__ inline void reduce_and_store_row(const Scalar* s_slab,
+                                            Scalar* d_out,
+                                            const unsigned int idx,
+                                            const unsigned int ntypes)
     {
-    unsigned int* address_as_uint = (unsigned int*)address;
-    unsigned int old = *address_as_uint, assumed;
-
-    do
+    Scalar total = Scalar(0.0);
+    for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
         {
-        assumed = old;
-        old = atomicCAS(address_as_uint, assumed, __float_as_uint(val + __uint_as_float(assumed)));
-        } while (assumed != old);
-
-    return __uint_as_float(old);
+        Scalar v = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(
+            s_slab[threadIdx.x * ntypes + typ_b]);
+        if ((threadIdx.x % tpp) == 0)
+            {
+            d_out[idx * (ntypes + 1) + typ_b] = v;
+            total += v;
+            }
+        }
+    if ((threadIdx.x % tpp) == 0)
+        d_out[idx * (ntypes + 1) + ntypes] = total;
     }
-#else
-inline __device__ float myAtomicAdd(float* address, float val)
-    {
-    return atomicAdd(address, val);
-    }
-#endif
 
 template<class evaluator, int tpp>
 __global__ void gpu_compute_density_kernel(const unsigned int N,
@@ -146,68 +149,168 @@ __global__ void gpu_compute_density_kernel(const unsigned int N,
         = (typename evaluator::param_type*)(&s_data[0]);
     Scalar* s_rcutsq
         = (Scalar*)(&s_data[num_typ_parameters * sizeof(typename evaluator::param_type)]);
+    Scalar* s_slab = s_rcutsq + num_typ_parameters;
 
-    for (unsigned int cur_offset = 0; cur_offset < num_typ_parameters; cur_offset += blockDim.x)
-        {
-        if (cur_offset + threadIdx.x < num_typ_parameters)
-            {
-            s_rcutsq[cur_offset + threadIdx.x] = d_rcutsq[cur_offset + threadIdx.x];
-            s_params[cur_offset + threadIdx.x] = d_params[cur_offset + threadIdx.x];
-            }
-        }
+    stage_params<evaluator>(d_params, d_rcutsq, s_params, s_rcutsq, num_typ_parameters);
     __syncthreads();
 
     unsigned int idx = blockIdx.x * (blockDim.x / tpp) + threadIdx.x / tpp;
     if (idx >= N)
         return;
 
+    // Per-thread, per-type tally. Nothing is shared between threads until the
+    // reduction at the end, so no atomics are needed anywhere: the original
+    // issued one global atomicAdd per neighbour, with every thread of a
+    // particle's team serialising on the same few addresses.
+    for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
+        s_slab[threadIdx.x * ntypes + typ_b] = Scalar(0.0);
+
     unsigned int n_neigh = d_n_neigh[idx];
     Scalar4 postypei = __ldg(d_pos + idx);
     Scalar3 posi = make_scalar3(postypei.x, postypei.y, postypei.z);
+    const size_t head_idx = d_head_list[idx];
 
-    Scalar phi_partial = Scalar(0.0);
-
-    if (evaluator::hasPerParticleEnergy())
+    for (int neigh_idx = threadIdx.x % tpp; neigh_idx < n_neigh; neigh_idx += tpp)
         {
-        const size_t head_idx = d_head_list[idx];
+        unsigned int cur_j = __ldg(d_nlist + head_idx + neigh_idx);
 
-        for (int neigh_idx = threadIdx.x % tpp; neigh_idx < n_neigh; neigh_idx += tpp)
-            {
-            unsigned int cur_j = __ldg(d_nlist + head_idx + neigh_idx);
+        Scalar4 postypej = __ldg(d_pos + cur_j);
+        Scalar3 posj = make_scalar3(postypej.x, postypej.y, postypej.z);
 
-            Scalar4 postypej = __ldg(d_pos + cur_j);
-            Scalar3 posj = make_scalar3(postypej.x, postypej.y, postypej.z);
+        Scalar3 dxij = posi - posj;
+        dxij = box.minImage(dxij);
+        Scalar rij_sq = dot(dxij, dxij);
 
-            Scalar3 dxij = posi - posj;
-            dxij = box.minImage(dxij);
-            Scalar rij_sq = dot(dxij, dxij);
+        unsigned int typpair = typpair_idx(__scalar_as_int(postypei.w),
+                                           __scalar_as_int(postypej.w));
+        // Skip neighbours beyond the pair r_cut (the staged rcutsq was never
+        // consulted before, so pairs in the nlist buffer zone were evaluated;
+        // all contributions are zero there as long as every window is inside
+        // r_cut, which every standard parameter set satisfies).
+        if (rij_sq >= s_rcutsq[typpair])
+            continue;
 
-            unsigned int typpair = typpair_idx(__scalar_as_int(postypei.w),
-                                               __scalar_as_int(postypej.w));
-            const typename evaluator::param_type& param = s_params[typpair];
-
-            evaluator eval(rij_sq, param);
-            Scalar local_phi = Scalar(0.0);
-            eval.evalPhi(local_phi);
-
-            myAtomicAdd(&d_phi_ab_arr[idx * (ntypes + 1) + __scalar_as_int(postypej.w)],
-                        local_phi);
-            phi_partial += local_phi;
-            }
+        evaluator eval(rij_sq, s_params[typpair]);
+        Scalar local_phi = Scalar(0.0);
+        eval.evalPhi(local_phi);
+        s_slab[threadIdx.x * ntypes + __scalar_as_int(postypej.w)] += local_phi;
         }
 
-    Scalar full_gsum = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(phi_partial);
-    if ((threadIdx.x % tpp) == 0)
-        d_phi_ab_arr[idx * (ntypes + 1) + ntypes] = full_gsum;
+    reduce_and_store_row<tpp>(s_slab, d_phi_ab_arr, idx, ntypes);
     }
 
+//! Many-body chain-rule sums S[i][b] = sum over type-b neighbours j of
+//! g'(n_i) g(n_j) V_a(r_ij), plus the type total in the last slot.
+/*! This is the first internal loop of the old force kernel moved into its own
+    launch, with the accumulator redirected from block-shared scratch to a
+    per-particle global array laid out exactly like the densities. Once S is
+    globally readable, any particle's team can evaluate the complete many-body
+    force term for a pair by itself - which is what makes the one-sided,
+    atomic-free force kernel below possible. */
+template<class evaluator, int tpp>
+__global__ void gpu_compute_valency_s_kernel(const unsigned int N,
+                                             const Scalar4* d_pos,
+                                             const Scalar* d_phi_ab_arr,
+                                             Scalar* d_s_ab_arr,
+                                             const BoxDim box,
+                                             const unsigned int* d_n_neigh,
+                                             const unsigned int* d_nlist,
+                                             const size_t* d_head_list,
+                                             const typename evaluator::param_type* d_params,
+                                             const Scalar* d_rcutsq,
+                                             const unsigned int ntypes)
+    {
+    Index2D typpair_idx(ntypes);
+    const unsigned int num_typ_parameters = typpair_idx.getNumElements();
+
+    HIP_DYNAMIC_SHARED(char, s_data)
+    typename evaluator::param_type* s_params = (typename evaluator::param_type*)(&s_data[0]);
+    Scalar* s_rcutsq
+        = (Scalar*)(&s_data[num_typ_parameters * sizeof(typename evaluator::param_type)]);
+    Scalar* s_slab = s_rcutsq + num_typ_parameters;
+
+    stage_params<evaluator>(d_params, d_rcutsq, s_params, s_rcutsq, num_typ_parameters);
+    __syncthreads();
+
+    unsigned int idx = blockIdx.x * (blockDim.x / tpp) + threadIdx.x / tpp;
+    if (idx >= N)
+        return;
+
+    for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
+        s_slab[threadIdx.x * ntypes + typ_b] = Scalar(0.0);
+
+    unsigned int n_neigh = d_n_neigh[idx];
+    Scalar4 postypei = __ldg(d_pos + idx);
+    Scalar3 posi = make_scalar3(postypei.x, postypei.y, postypei.z);
+    const unsigned int typei = __scalar_as_int(postypei.w);
+    const size_t head_idx = d_head_list[idx];
+
+    const Scalar phi_i_total = d_phi_ab_arr[idx * (ntypes + 1) + ntypes];
+
+    for (int neigh_idx = threadIdx.x % tpp; neigh_idx < n_neigh; neigh_idx += tpp)
+        {
+        unsigned int cur_j = __ldg(d_nlist + head_idx + neigh_idx);
+
+        Scalar4 postypej = __ldg(d_pos + cur_j);
+        Scalar3 posj = make_scalar3(postypej.x, postypej.y, postypej.z);
+
+        Scalar3 dxij = posi - posj;
+        dxij = box.minImage(dxij);
+        Scalar rij_sq = dot(dxij, dxij);
+
+        const unsigned int typej = __scalar_as_int(postypej.w);
+        const unsigned int typpair = typpair_idx(typei, typej);
+        if (rij_sq >= s_rcutsq[typpair])
+            continue;
+
+        evaluator evalij(rij_sq, s_params[typpair]);
+
+        // Most pairs sit outside the unit-wide gate ramp, where g' is exactly
+        // zero; skip the rest of the work there.
+        Scalar W1_div = Scalar(0.0);
+        evalij.evalOmegaDiv(W1_div, d_phi_ab_arr[idx * (ntypes + 1) + typej],
+                            phi_i_total);
+        if (W1_div == Scalar(0.0))
+            continue;
+
+        Scalar attr_eng = Scalar(0.0);
+        Scalar attr_eng_div = Scalar(0.0);
+        evalij.evalAttractive(attr_eng, attr_eng_div);
+        if (attr_eng == Scalar(0.0))
+            continue;
+
+        Scalar W2 = Scalar(0.0);
+        evalij.evalOmegaji(W2, d_phi_ab_arr[cur_j * (ntypes + 1) + typei],
+                           d_phi_ab_arr[cur_j * (ntypes + 1) + ntypes]);
+
+        s_slab[threadIdx.x * ntypes + typej] += W1_div * W2 * attr_eng;
+        }
+
+    reduce_and_store_row<tpp>(s_slab, d_s_ab_arr, idx, ntypes);
+    }
+
+//! One-sided force sweep: each particle's team computes its complete force.
+/*! With a full neighbour list every pair (i, j) is processed twice, once by
+    each particle's team. The old kernel had each visit compute half the pair
+    force plus its own particle's share of the many-body term and push the
+    result into BOTH particles' force slots - four atomicAdds per neighbour to
+    the partner, because the partner's team cannot see this team's s_i scratch.
+    With S stored per particle, each visit now computes the full derivative
+
+        dE/dr_ij = Vr' + W1 W2 Va' + w'(r_ij) (S_i + S_j)
+
+    for its own particle only and never writes anywhere else: the team's
+    partial forces are summed with warp reductions and the team leader issues
+    the single store. No atomics remain, so forces are also bitwise
+    reproducible run to run. */
 template<class evaluator, unsigned char compute_virial, int tpp>
 __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
                                                   const unsigned int N,
                                                   Scalar* d_virial,
                                                   size_t virial_pitch,
                                                   const Scalar4* d_pos,
-                                                  Scalar* d_phi_ab_arr,
+                                                  const Scalar* d_phi_ab_arr,
+                                                  const Scalar* d_s_ab_arr,
                                                   const BoxDim box,
                                                   const unsigned int* d_n_neigh,
                                                   const unsigned int* d_nlist,
@@ -224,49 +327,30 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
     Scalar* s_rcutsq
         = (Scalar*)(&s_data[num_typ_parameters * sizeof(typename evaluator::param_type)]);
 
-    Scalar* s_phi_ab = s_rcutsq + num_typ_parameters;
-
-    for (unsigned int cur_offset = 0; cur_offset < num_typ_parameters; cur_offset += blockDim.x)
-        {
-        if (cur_offset + threadIdx.x < num_typ_parameters)
-            {
-            s_rcutsq[cur_offset + threadIdx.x] = d_rcutsq[cur_offset + threadIdx.x];
-            s_params[cur_offset + threadIdx.x] = d_params[cur_offset + threadIdx.x];
-            }
-        }
-
+    stage_params<evaluator>(d_params, d_rcutsq, s_params, s_rcutsq, num_typ_parameters);
     __syncthreads();
 
-    for (unsigned int i = 0; i < ntypes; ++i)
-        {
-
-        s_phi_ab[threadIdx.x * ntypes + i] = Scalar(0.0);
-        }
-
     unsigned int idx = blockIdx.x * (blockDim.x / tpp) + threadIdx.x / tpp;
-
     if (idx >= N)
         return;
 
     unsigned int n_neigh = d_n_neigh[idx];
-
     Scalar4 postypei = __ldg(d_pos + idx);
     Scalar3 posi = make_scalar3(postypei.x, postypei.y, postypei.z);
+    const unsigned int typei = __scalar_as_int(postypei.w);
+    const size_t head_idx = d_head_list[idx];
+
+    const Scalar phi_i_total = d_phi_ab_arr[idx * (ntypes + 1) + ntypes];
+    const Scalar s_i_total = d_s_ab_arr[idx * (ntypes + 1) + ntypes];
 
     Scalar4 forcei = make_scalar4(Scalar(0.0), Scalar(0.0), Scalar(0.0), Scalar(0.0));
 
-    Scalar phi_ab_idx_sum = d_phi_ab_arr[idx * (ntypes + 1) + ntypes];
-
-    const size_t head_idx = d_head_list[idx];
     unsigned int cur_j = 0;
-    unsigned int next_j(0);
-    size_t my_head = d_head_list[idx];
-
-    next_j = threadIdx.x % tpp < n_neigh ? __ldg(d_nlist + my_head + threadIdx.x % tpp) : 0;
+    unsigned int next_j
+        = threadIdx.x % tpp < n_neigh ? __ldg(d_nlist + head_idx + threadIdx.x % tpp) : 0;
 
     for (int neigh_idx = threadIdx.x % tpp; neigh_idx < n_neigh; neigh_idx += tpp)
         {
-
         cur_j = next_j;
         if (neigh_idx + tpp < n_neigh)
             {
@@ -276,140 +360,66 @@ __global__ void gpu_compute_valency_forces_kernel(Scalar4* d_force,
         Scalar4 postypej = __ldg(d_pos + cur_j);
         Scalar3 posj = make_scalar3(postypej.x, postypej.y, postypej.z);
 
-        Scalar4 forcej = make_scalar4(Scalar(0.0), Scalar(0.0), Scalar(0.0), Scalar(0.0));
-
         Scalar3 dxij = posi - posj;
-
         dxij = box.minImage(dxij);
-
         Scalar rij_sq = dot(dxij, dxij);
 
-        unsigned int typpair
-            = typpair_idx(__scalar_as_int(postypei.w), __scalar_as_int(postypej.w));
-        Scalar rcutsq = s_rcutsq[typpair];
-        const typename evaluator::param_type& param = s_params[typpair];
+        const unsigned int typej = __scalar_as_int(postypej.w);
+        const unsigned int typpair = typpair_idx(typei, typej);
+        if (rij_sq >= s_rcutsq[typpair])
+            continue;
 
-        evaluator evalij(rij_sq, param);
+        evaluator evalij(rij_sq, s_params[typpair]);
 
+        Scalar rep_eng = Scalar(0.0);
+        Scalar rep_eng_div = Scalar(0.0);
         Scalar attr_eng = Scalar(0.0);
         Scalar attr_eng_div = Scalar(0.0);
+        evalij.evalRepulsive(rep_eng, rep_eng_div);
         evalij.evalAttractive(attr_eng, attr_eng_div);
 
-        Scalar phi_ab_jdx_sum = d_phi_ab_arr[cur_j * (ntypes + 1) + ntypes];
-
-        Scalar W1_div = Scalar(0.0);
-        Scalar W2 = Scalar(0.0);
-        evalij.evalOmegaDiv(W1_div, d_phi_ab_arr[idx * (ntypes + 1) + __scalar_as_int(postypej.w)], phi_ab_idx_sum);
-        evalij.evalOmegaji(W2, d_phi_ab_arr[cur_j * (ntypes + 1) + __scalar_as_int(postypei.w)], phi_ab_jdx_sum);
-
-        s_phi_ab[threadIdx.x * ntypes + __scalar_as_int(postypej.w)] += W1_div * W2 * attr_eng;
-
-        }
-    __syncthreads();
-    Scalar s_phi_ab_sum = 0.0;
-    for (unsigned int typ_b = 0; typ_b < ntypes; ++typ_b)
+        Scalar W1W2 = Scalar(0.0);
+        if (attr_eng != Scalar(0.0) || attr_eng_div != Scalar(0.0))
             {
-            Scalar phi = s_phi_ab[threadIdx.x * ntypes + typ_b];
-
-            phi = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(phi);
-
-            s_phi_ab[threadIdx.x * ntypes + typ_b]
-                = hoomd::detail::WarpScan<Scalar, tpp>().Broadcast(phi, 0);
-            s_phi_ab_sum += hoomd::detail::WarpScan<Scalar, tpp>().Broadcast(phi, 0);
-            }
-    __syncthreads();
-
-    cur_j = 0;
-    next_j = 0;
-    my_head = d_head_list[idx];
-
-    next_j = threadIdx.x % tpp < n_neigh ? __ldg(d_nlist + my_head + threadIdx.x % tpp) : 0;
-
-    for (int neigh_idx = threadIdx.x % tpp; neigh_idx < n_neigh; neigh_idx += tpp)
-        {
-
-        cur_j = next_j;
-        if (neigh_idx + tpp < n_neigh)
-            {
-            next_j = __ldg(d_nlist + head_idx + neigh_idx + tpp);
-            }
-
-        Scalar4 postypej = __ldg(d_pos + cur_j);
-        Scalar3 posj = make_scalar3(postypej.x, postypej.y, postypej.z);
-
-        Scalar4 forcej = make_scalar4(Scalar(0.0), Scalar(0.0), Scalar(0.0), Scalar(0.0));
-
-        Scalar3 dxij = posi - posj;
-
-        dxij = box.minImage(dxij);
-
-        Scalar rij_sq = dot(dxij, dxij);
-        Scalar rij_abs = fast::sqrt(rij_sq);
-
-        unsigned int typpair
-            = typpair_idx(__scalar_as_int(postypei.w), __scalar_as_int(postypej.w));
-        Scalar rcutsq = s_rcutsq[typpair];
-        const typename evaluator::param_type& param = s_params[typpair];
-
-            Scalar force_divr = Scalar(0.0);
-            Scalar potential_eng = Scalar(0.0);
-
-            evaluator evalij(rij_sq, param);
-
-            Scalar rep_eng = Scalar(0.0);
-            Scalar rep_eng_div = Scalar(0.0);
-            Scalar attr_eng = Scalar(0.0);
-            Scalar attr_eng_div = Scalar(0.0);
-            evalij.evalRepulsive(rep_eng, rep_eng_div);
-            evalij.evalAttractive(attr_eng, attr_eng_div);
-
-            Scalar phi_ab_jdx_sum = d_phi_ab_arr[cur_j * (ntypes + 1) + ntypes];
-
             Scalar W1 = Scalar(0.0);
             Scalar W2 = Scalar(0.0);
-            evalij.evalOmega(W1, d_phi_ab_arr[idx * (ntypes + 1) + __scalar_as_int(postypej.w)], phi_ab_idx_sum);
-            evalij.evalOmegaji(W2, d_phi_ab_arr[cur_j * (ntypes + 1) + __scalar_as_int(postypei.w)], phi_ab_jdx_sum);
+            evalij.evalOmega(W1, d_phi_ab_arr[idx * (ntypes + 1) + typej], phi_i_total);
+            evalij.evalOmegaji(W2, d_phi_ab_arr[cur_j * (ntypes + 1) + typei],
+                               d_phi_ab_arr[cur_j * (ntypes + 1) + ntypes]);
+            W1W2 = W1 * W2;
+            }
 
-            Scalar Wrij_div = Scalar(0.0);
-            evalij.evalPhiDiv(Wrij_div);
+        // dE/dr_ij: the pair part plus the many-body chain-rule part, the
+        // latter only inside the density window where w' is nonzero.
+        Scalar dedr = rep_eng_div + W1W2 * attr_eng_div;
+        Scalar Wrij_div = Scalar(0.0);
+        evalij.evalPhiDiv(Wrij_div);
+        if (Wrij_div != Scalar(0.0))
+            {
+            const Scalar s_i
+                = evalij.pickPhi(d_s_ab_arr[idx * (ntypes + 1) + typej], s_i_total);
+            const Scalar s_j
+                = evalij.pickPhi(d_s_ab_arr[cur_j * (ntypes + 1) + typei],
+                                 d_s_ab_arr[cur_j * (ntypes + 1) + ntypes]);
+            dedr += Wrij_div * (s_i + s_j);
+            }
 
-            evalij.evalForceij(force_divr,
-                                potential_eng,
-                                rep_eng,
-                                rep_eng_div,
-                                attr_eng,
-                                attr_eng_div,
-                                s_phi_ab[threadIdx.x * ntypes + __scalar_as_int(postypej.w)],
+        const Scalar force_divr = -dedr * evalij.rinv();
 
-                                s_phi_ab_sum,
-                                W1,
-                                W2,
-                                Wrij_div);
-
-            forcei.x -= dxij.x * (force_divr/rij_abs);
-            forcei.y -= dxij.y * (force_divr/rij_abs);
-            forcei.z -= dxij.z * (force_divr/rij_abs);
-
-            forcej.x += dxij.x * (force_divr/rij_abs);
-            forcej.y += dxij.y * (force_divr/rij_abs);
-            forcej.z += dxij.z * (force_divr/rij_abs);
-
-            forcej.w += Scalar(0.5) * potential_eng;
-
-            forcei.w += Scalar(0.5) * potential_eng;
-
-            myAtomicAdd(&d_force[cur_j].x, forcej.x);
-            myAtomicAdd(&d_force[cur_j].y, forcej.y);
-            myAtomicAdd(&d_force[cur_j].z, forcej.z);
-            myAtomicAdd(&d_force[cur_j].w, forcej.w);
-
+        forcei.x += dxij.x * force_divr;
+        forcei.y += dxij.y * force_divr;
+        forcei.z += dxij.z * force_divr;
+        forcei.w += Scalar(0.5) * (rep_eng + W1W2 * attr_eng);
         }
 
-    myAtomicAdd(&d_force[idx].x, forcei.x);
-    myAtomicAdd(&d_force[idx].y, forcei.y);
-    myAtomicAdd(&d_force[idx].z, forcei.z);
-    myAtomicAdd(&d_force[idx].w, forcei.w);
+    // Combine the team's partials with register shuffles; one write, no atomics.
+    forcei.x = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(forcei.x);
+    forcei.y = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(forcei.y);
+    forcei.z = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(forcei.z);
+    forcei.w = hoomd::detail::WarpReduce<Scalar, tpp>().Sum(forcei.w);
 
+    if ((threadIdx.x % tpp) == 0)
+        d_force[idx] = forcei;
     }
 
 template<typename T>
@@ -435,39 +445,51 @@ template<class evaluator, unsigned int compute_virial, int tpp> struct ValencyCo
         {
         if (tpp == pair_args.tpp)
             {
-            unsigned int max_block_size;
-            unsigned int kernel_shared_bytes;
+            unsigned int max_block_size = UINT_MAX;
+            unsigned int kernel_shared_bytes = 0;
+            unsigned int mbs, ksb;
+            get_max_block_size(gpu_compute_density_kernel<evaluator, tpp>, pair_args, mbs, ksb);
+            max_block_size = min(max_block_size, mbs);
+            kernel_shared_bytes = max(kernel_shared_bytes, ksb);
+            get_max_block_size(gpu_compute_valency_s_kernel<evaluator, tpp>, pair_args, mbs, ksb);
+            max_block_size = min(max_block_size, mbs);
+            kernel_shared_bytes = max(kernel_shared_bytes, ksb);
             get_max_block_size(gpu_compute_valency_forces_kernel<evaluator, compute_virial, tpp>,
                                pair_args,
-                               max_block_size,
-                               kernel_shared_bytes);
+                               mbs,
+                               ksb);
+            max_block_size = min(max_block_size, mbs);
+            kernel_shared_bytes = max(kernel_shared_bytes, ksb);
+
             int run_block_size = min(pair_args.block_size, max_block_size);
 
             Index2D typpair_idx(pair_args.ntypes);
-            size_t shared_bytes = (sizeof(Scalar) + sizeof(typename evaluator::param_type))
-                                      * typpair_idx.getNumElements()
-                                  + pair_args.ntypes * run_block_size * sizeof(Scalar);
+            const size_t base_shared
+                = (sizeof(Scalar) + sizeof(typename evaluator::param_type))
+                  * typpair_idx.getNumElements();
 
-            while (shared_bytes + kernel_shared_bytes >= pair_args.devprop.sharedMemPerBlock)
+            // The density and S kernels add the per-thread, per-type slab on
+            // top of the staged parameters; the force kernel needs only the
+            // parameters.
+            size_t slab_shared = pair_args.ntypes * run_block_size * sizeof(Scalar);
+            while (base_shared + slab_shared + kernel_shared_bytes
+                   >= pair_args.devprop.sharedMemPerBlock)
                 {
                 run_block_size -= pair_args.devprop.warpSize;
-
-                shared_bytes = (sizeof(Scalar) + sizeof(typename evaluator::param_type))
-                                   * typpair_idx.getNumElements()
-                               + pair_args.ntypes * run_block_size * sizeof(Scalar);
+                if (run_block_size <= 0)
+                    {
+                    throw std::runtime_error(
+                        "Valency potential parameters exceed the available shared "
+                        "memory per block.");
+                    }
+                slab_shared = pair_args.ntypes * run_block_size * sizeof(Scalar);
                 }
 
-            if (shared_bytes > pair_args.devprop.sharedMemPerBlock)
-                {
-                throw std::runtime_error("Valency potential parameters exceed the available shared "
-                                         "memory per block.");
-                }
-
-            hipMemset(pair_args.d_force, 0, sizeof(Scalar4) * (pair_args.N + pair_args.Nghosts));
+            // The kernels overwrite their outputs (plain stores, no
+            // accumulation), so the force and phi arrays no longer need to be
+            // zeroed each step. The virial is still zeroed: nothing writes it
+            // yet.
             hipMemset(pair_args.d_virial, 0, sizeof(Scalar) * pair_args.virial_pitch * 6);
-            hipMemset(pair_args.d_phi_ab_arr, 0,
-                      sizeof(Scalar) * (pair_args.ntypes + 1)
-                          * (pair_args.N + pair_args.Nghosts));
 
             dim3 grid(pair_args.N / (run_block_size / pair_args.tpp) + 1, 1, 1);
             dim3 threads(run_block_size, 1, 1);
@@ -475,7 +497,7 @@ template<class evaluator, unsigned int compute_virial, int tpp> struct ValencyCo
             hipLaunchKernelGGL((gpu_compute_density_kernel<evaluator, tpp>),
                                dim3(grid),
                                dim3(threads),
-                               shared_bytes,
+                               base_shared + slab_shared,
                                0,
                                pair_args.N,
                                pair_args.d_pos,
@@ -488,10 +510,27 @@ template<class evaluator, unsigned int compute_virial, int tpp> struct ValencyCo
                                pair_args.d_rcutsq,
                                pair_args.ntypes);
 
+            hipLaunchKernelGGL((gpu_compute_valency_s_kernel<evaluator, tpp>),
+                               dim3(grid),
+                               dim3(threads),
+                               base_shared + slab_shared,
+                               0,
+                               pair_args.N,
+                               pair_args.d_pos,
+                               pair_args.d_phi_ab_arr,
+                               pair_args.d_s_ab_arr,
+                               pair_args.box,
+                               pair_args.d_n_neigh,
+                               pair_args.d_nlist,
+                               pair_args.d_head_list,
+                               d_params,
+                               pair_args.d_rcutsq,
+                               pair_args.ntypes);
+
             hipLaunchKernelGGL((gpu_compute_valency_forces_kernel<evaluator, compute_virial, tpp>),
                                dim3(grid),
                                dim3(threads),
-                               shared_bytes,
+                               base_shared,
                                0,
                                pair_args.d_force,
                                pair_args.N,
@@ -499,6 +538,7 @@ template<class evaluator, unsigned int compute_virial, int tpp> struct ValencyCo
                                pair_args.virial_pitch,
                                pair_args.d_pos,
                                pair_args.d_phi_ab_arr,
+                               pair_args.d_s_ab_arr,
                                pair_args.box,
                                pair_args.d_n_neigh,
                                pair_args.d_nlist,
